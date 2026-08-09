@@ -1,0 +1,11 @@
+Supplier_ID,Supplier_Name,Category,Location_Type,Spend_USD,TKDN_Compliant,ESG_Score,Carbon_Intensity_kgCO2_per_USD,ISO14001_Certified,Delivery_LeadTime_Days
+SUP-001,PT Hexindo Adiperkasa Tbk,Heavy Equipment,Non-Local National,185000000,Yes,88,0.42,Yes,14
+SUP-002,PT United Tractors Tbk,Heavy Equipment,Non-Local National,210000000,Yes,92,0.38,Yes,10
+SUP-003,PT Pertamina Patra Niaga,Fuel & Lubricants,Non-Local National,14500000,Yes,81,0.85,Yes,5
+SUP-004,KUBE Srikandi Lengkari,Domestic & CSR Waste,Local,45000,Yes,95,0.05,No,2
+SUP-005,PT United Coal Logistics,Logistics & Support,Local,1250000,Yes,74,0.65,Yes,4
+SUP-006,PT Asian Bulk Logistics,Offshore Shipping,Non-Local National,32870000,Yes,78,0.72,Yes,7
+SUP-007,Global Tyre Supplies Ltd,Tyres & Parts,International,13036556,No,62,0.95,No,30
+SUP-008,CV Kariangau Mandiri,Civil & Construction,Local,850000,Yes,89,0.22,Yes,3
+SUP-009,PT Scan-Bilt Indonesia,Chemical EPC,Non-Local National,15400000,Yes,85,0.48,Yes,12
+SUP-010,PT Hafar Daya Fleet,Offshore Marine,Local,22400000,Yes,83,0.58,Yes,6

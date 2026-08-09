@@ -1,0 +1,36 @@
+# Operating System Files
+desktop.ini
+Thumbs.db
+.DS_Store
+
+# Python & Environment
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.env
+.env.local
+.venv
+
+# Streamlit & Cache
+.streamlit/
+.cache/
+
+# IDE & Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs & Temporary Files
+*.log
+*.tmp
+*.temp
+
+# Coverage & Testing
+coverage/
+.pytest_cache/

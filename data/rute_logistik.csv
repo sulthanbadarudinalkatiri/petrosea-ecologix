@@ -1,0 +1,6 @@
+Route_ID,Origin,Destination,Distance_km,Transport_Mode,Avg_Monthly_Trips,Avg_Payload_Tons,Lat_Dest,Lon_Dest,Weather_Sensitivity
+RT-001,PSF Balikpapan,CEP Kutai Barat (Tambang),345,Truck Biofuel B40,45,35,-0.2234,115.6812,High
+RT-002,PSF Balikpapan,Kideco Paser,180,Truck Biofuel B40,60,40,-1.8452,115.9123,Medium
+RT-003,Pelabuhan Kariangau,Freepot Papua Site,1850,Barge Offshore,12,1200,-4.5321,136.8834,High
+RT-004,PSF Balikpapan,Vale Indonesia Sorowako,820,Barge & Truck,8,500,-2.5283,121.3521,Medium
+RT-005,Sorong POSB,West Papua Offshore,320,Supply Vessel,15,800,-0.8721,131.2543,High
