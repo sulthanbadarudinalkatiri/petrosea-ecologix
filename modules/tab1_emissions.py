@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from modules.schemas import calculate_dynamic_esg_score
+from modules.constants import ESG_HIGH_RISK_THRESHOLD
 
 def render_tab1(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame, selected_year: int, scope3_tot: float, curr_data: pd.Series):
     """
@@ -40,7 +41,21 @@ def render_tab1(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame, selected
     largest_s3_val = s3_categories[largest_s3_cat]
     s3_pct = (largest_s3_val / scope3_tot * 100) if scope3_tot > 0 else 0.0
 
-    high_risk_count = len(df_suppliers[df_suppliers['ESG_Score'] < 75])
+    df_suppliers_scored = df_suppliers.copy()
+    if not df_suppliers_scored.empty:
+        df_suppliers_scored['Dynamic_ESG_Score'] = df_suppliers_scored.apply(
+            lambda row: calculate_dynamic_esg_score(
+                base_esg=float(row['ESG_Score']),
+                iso_certified=str(row['ISO14001_Certified']),
+                tkdn_compliant=str(row['TKDN_Compliant']),
+                carbon_intensity=float(row['Carbon_Intensity_kgCO2_per_USD']),
+                lead_time_days=int(row['Delivery_LeadTime_Days'])
+            ), axis=1
+        )
+    else:
+        df_suppliers_scored['Dynamic_ESG_Score'] = pd.Series(dtype=float)
+
+    high_risk_count = len(df_suppliers_scored[df_suppliers_scored['Dynamic_ESG_Score'] < ESG_HIGH_RISK_THRESHOLD])
 
     st.markdown(f"""
         <div class="petrosea-callout">
@@ -184,7 +199,7 @@ def render_tab1(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame, selected
     col_s1, col_s2 = st.columns([6, 4])
     
     with col_s1:
-        df_suppliers_fmt = df_suppliers.copy()
+        df_suppliers_fmt = df_suppliers_scored.copy()
         df_suppliers_fmt['Spend_Formatted'] = df_suppliers_fmt['Spend_USD'].apply(
             lambda x: f"${x/1e6:.2f}M" if x >= 1e6 else f"${x/1e3:.0f}K"
         )
@@ -193,17 +208,17 @@ def render_tab1(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame, selected
         fig_scatter = px.scatter(
             df_suppliers_fmt, 
             x="Spend_USD", 
-            y="ESG_Score",
+            y="Dynamic_ESG_Score",
             size="Carbon_Intensity_kgCO2_per_USD", 
             color="Location_Type",
             hover_name="Supplier_Name", 
             hover_data={"Supplier_ID": True, "Spend_Formatted": True, "Spend_USD": False, "Category": True},
             title="<b>Sebaran Pemasok: Total Belanja vs Skor ESG</b>",
-            labels={"Spend_USD": "Total Belanja (USD)", "ESG_Score": "Skor ESG (0-100)", "Location_Type": "Lokasi Vendor"},
+            labels={"Spend_USD": "Total Belanja (USD)", "Dynamic_ESG_Score": "Skor ESG (0-100)", "Location_Type": "Lokasi Vendor"},
             color_discrete_map=color_map,
             size_max=26
         )
-        fig_scatter.add_hline(y=75, line_dash="dash", line_color="#D9381E", annotation_text="Batas Aman Skor ESG (75)")
+        fig_scatter.add_hline(y=ESG_HIGH_RISK_THRESHOLD, line_dash="dash", line_color="#D9381E", annotation_text=f"Batas Aman Skor ESG ({ESG_HIGH_RISK_THRESHOLD})")
         fig_scatter.update_traces(marker=dict(opacity=0.85, line=dict(width=1.5, color='#FFFFFF')))
         fig_scatter.update_layout(
             paper_bgcolor='rgba(0,0,0,0)', 
@@ -220,16 +235,10 @@ def render_tab1(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame, selected
         else:
             from modules.constants import MAX_BENCHMARK_LEAD_TIME_DAYS, MAX_BENCHMARK_CARBON_INTENSITY
             
-            selected_vendor = st.selectbox("Pilih Pemasok", df_suppliers['Supplier_Name'].unique(), key="vendor_select_tab1")
-            vendor_info = df_suppliers[df_suppliers['Supplier_Name'] == selected_vendor].iloc[0]
+            selected_vendor = st.selectbox("Pilih Pemasok", df_suppliers_scored['Supplier_Name'].unique(), key="vendor_select_tab1")
+            vendor_info = df_suppliers_scored[df_suppliers_scored['Supplier_Name'] == selected_vendor].iloc[0]
             
-            dynamic_score = calculate_dynamic_esg_score(
-                base_esg=float(vendor_info['ESG_Score']),
-                iso_certified=str(vendor_info['ISO14001_Certified']),
-                tkdn_compliant=str(vendor_info['TKDN_Compliant']),
-                carbon_intensity=float(vendor_info['Carbon_Intensity_kgCO2_per_USD']),
-                lead_time_days=int(vendor_info['Delivery_LeadTime_Days'])
-            )
+            dynamic_score = vendor_info['Dynamic_ESG_Score']
             
             loc_type = vendor_info['Location_Type']
             assigned_color = '#00875A' if loc_type == 'Local' else ('#F59E0B' if loc_type == 'Non-Local National' else '#0284C7')

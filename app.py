@@ -33,101 +33,116 @@ st.markdown("""
         font-weight: 700;
     }
     
+    /* Sustainable Corporate Palette - Adaptive via Streamlit Variables */
+    
     h1 {
         font-size: 2.0rem !important;
         font-weight: 800 !important;
-        color: #005A36 !important;
         letter-spacing: -0.025em !important;
+        color: var(--text-color) !important;
     }
     
     /* Logo Container Petrosea */
     .logo-container {
-        background-color: #FFFFFF;
+        background-color: var(--secondary-background-color);
         padding: 12px;
-        border-radius: 12px;
+        border-radius: 16px;
         text-align: center;
         margin-bottom: 15px;
-        box-shadow: 0 4px 12px rgba(0, 90, 54, 0.08);
-        border: 1px solid rgba(0, 90, 54, 0.12);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+        border: 1px solid var(--border-color, rgba(0, 90, 54, 0.10));
     }
     
-    /* Executive Metric Card Styling - Adaptive Theme Support */
+    /* Executive Metric Card Styling (Bento Box Vibe) */
     div[data-testid="stMetric"] {
-        border: 1px solid rgba(0, 90, 54, 0.25);
-        padding: 12px 16px;
-        border-radius: 12px;
-        box-shadow: 0 2px 6px rgba(0, 90, 54, 0.05);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        background-color: var(--secondary-background-color);
+        border: 1px solid var(--border-color, rgba(0, 90, 54, 0.10));
+        padding: 16px 20px;
+        border-radius: 16px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
     }
     
     div[data-testid="stMetric"]:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 6px 16px rgba(0, 90, 54, 0.15);
+        transform: translateY(-4px);
+        box-shadow: 0 8px 24px rgba(232, 119, 34, 0.12); /* Subtle orange glow on hover */
+        border-color: rgba(232, 119, 34, 0.3);
     }
     
     div[data-testid="stMetric"] label {
         font-weight: 600 !important;
         font-size: 0.85rem !important;
+        color: var(--text-color) !important;
+        opacity: 0.8;
     }
     
     div[data-testid="stMetricValue"] {
-        font-size: 1.35rem !important;
-        font-weight: 700 !important;
-        line-height: 1.25 !important;
-        word-break: break-word !important;
+        font-size: 1.5rem !important;
+        font-weight: 800 !important;
+        color: var(--text-color) !important;
+        line-height: 1.2 !important;
     }
 
     /* Status Badges */
-    .badge-local { background-color: #00875A; color: #FFFFFF; padding: 4px 12px; border-radius: 12px; font-weight: 700; font-size: 0.85rem; font-family: 'Inter', sans-serif; }
-    .badge-national { background-color: #F59E0B; color: #FFFFFF; padding: 4px 12px; border-radius: 12px; font-weight: 700; font-size: 0.85rem; font-family: 'Inter', sans-serif; }
-    .badge-inter { background-color: #0284C7; color: #FFFFFF; padding: 4px 12px; border-radius: 12px; font-weight: 700; font-size: 0.85rem; font-family: 'Inter', sans-serif; }
+    .badge-local { background-color: #005A36; color: #FFFFFF; padding: 4px 12px; border-radius: 12px; font-weight: 700; font-size: 0.85rem; }
+    .badge-national { background-color: #E87722; color: #FFFFFF; padding: 4px 12px; border-radius: 12px; font-weight: 700; font-size: 0.85rem; }
+    .badge-inter { background-color: #0284C7; color: #FFFFFF; padding: 4px 12px; border-radius: 12px; font-weight: 700; font-size: 0.85rem; }
     
-    /* Callout Containers - High Contrast Adaptive Color Support */
+    /* Callout Containers */
     .petrosea-callout {
-        background-color: rgba(0, 168, 107, 0.12);
-        border-left: 5px solid #00A86B;
-        padding: 14px 18px;
-        border-radius: 8px;
+        background-color: var(--secondary-background-color);
+        border-left: 6px solid #E87722; /* Orange accent */
+        padding: 16px 20px;
+        border-radius: 12px;
         margin-bottom: 20px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
     }
     
     .petrosea-callout h4 {
-        color: #00A86B !important;
+        color: #E87722 !important;
         margin-top: 0 !important;
-        margin-bottom: 6px !important;
-        font-weight: 700 !important;
+        margin-bottom: 8px !important;
+        font-weight: 800 !important;
     }
-
-    .petrosea-callout, .petrosea-callout div, .petrosea-callout p, .petrosea-callout li, .petrosea-callout span, .petrosea-callout b, .petrosea-callout strong {
-        color: inherit !important;
+    
+    .petrosea-callout p {
+        color: var(--text-color) !important;
     }
 
     /* Enterprise Tab Navigation Spacing & Visual Hierarchy */
     .stTabs [data-baseweb="tab-list"] {
         gap: 16px !important;
-        border-bottom: 2px solid rgba(0, 90, 54, 0.12) !important;
-        padding-bottom: 4px !important;
-        margin-bottom: 20px !important;
+        border-bottom: 2px solid var(--border-color, rgba(0, 90, 54, 0.10)) !important;
+        padding-bottom: 0px !important;
+        margin-bottom: 24px !important;
     }
     
     .stTabs [data-baseweb="tab"] {
-        height: 44px !important;
-        padding: 8px 22px !important;
-        border-radius: 8px 8px 0px 0px !important;
+        height: 48px !important;
+        padding: 8px 24px !important;
+        border-radius: 12px 12px 0px 0px !important;
         font-weight: 600 !important;
         font-size: 0.95rem !important;
-        letter-spacing: -0.01em !important;
+        color: var(--text-color) !important;
+        opacity: 0.7;
         transition: all 0.2s ease !important;
+        background-color: transparent !important;
+        border: none !important;
     }
 
     .stTabs [aria-selected="true"] {
-        color: #005A36 !important;
-        font-weight: 700 !important;
-        border-bottom: 3px solid #005A36 !important;
-        background-color: rgba(0, 90, 54, 0.06) !important;
+        color: var(--text-color) !important;
+        opacity: 1.0 !important;
+        font-weight: 800 !important;
+        border-bottom: 4px solid #E87722 !important; /* Orange underline for active tab */
+        background-color: var(--secondary-background-color) !important;
+        box-shadow: 0 -4px 12px rgba(0,0,0,0.02) !important;
     }
+
+    /* Hapus manual @media dark mode karena sering bentrok dengan Streamlit Theme Switcher */
     </style>
 """, unsafe_allow_html=True)
+
 
 # -----------------------------------------------------------------------------
 # 2. DATA LOADING & PYDANTIC SCHEMA VALIDATION
@@ -268,3 +283,4 @@ with tab3:
 # 6. CORPORATE FOOTER & DATA PROVENANCE STAMP
 # -----------------------------------------------------------------------------
 st.markdown("---")
+# EcoLogix Final Executive Build & Documentation Sync Stamp

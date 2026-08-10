@@ -5,13 +5,17 @@ def render_tab3_executive(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame
     """
     Renders Tab 3: Board Executive Briefing Statement & Verified Audit Trail Data.
     Designed for Board of Directors decision-makers and external ESG auditors.
+    Single Unified Clean Executive Briefing Memo.
     """
     st.subheader("Rangkuman Eksekutif Direksi & Transparansi Data Audit")
-    st.caption("Ringkasan eksekutif untuk pengambil keputusan (Board of Directors) yang mengombinasikan proyeksi dekarbonisasi, rekomendasi logistik koridor, serta berkas verifikasi audit data terstruktur.")
+    st.caption("Menggabungkan proyeksi dekarbonisasi akurat, rekomendasi logistik koridor, dan verifikasi data audit ESG. Strategi terintegrasi untuk keberlanjutan bisnis.")
     st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True)
 
+    locked_logistics = st.session_state.get('locked_logistics', None)
+    locked_decarb = st.session_state.get('locked_decarb', None)
+
     # -------------------------------------------------------------------------
-    # 1. EXECUTIVE IMPACT BOARD
+    # 1. EXECUTIVE IMPACT BOARD METRICS WITH VISUAL GAUGE
     # -------------------------------------------------------------------------
     col_e1, col_e2, col_e3, col_e4 = st.columns(4)
     
@@ -28,7 +32,7 @@ def render_tab3_executive(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame
         st.metric(
             label="Total Emisi Operasional (Scope 1 & 2)",
             value=f"{total_ops_emissions:,.2f} tCO2e",
-            help="Jumlah emisi langsung dari solar alat berat tambang dan konsumsi listrik operasional situs."
+            help="Emisi langsung dari solar alat berat tambang & konsumsi listrik situs."
         )
     with col_e2:
         st.metric(
@@ -40,7 +44,7 @@ def render_tab3_executive(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame
         st.metric(
             label="Profil Risiko Pemasok (ESG < 75)",
             value=f"{high_risk_count} Pemasok",
-            delta="Perlu Audit" if high_risk_count > 0 else "Kepatuhan Optimal",
+            delta="Perlu Audit ESG" if high_risk_count > 0 else "Kepatuhan Optimal",
             delta_color="inverse"
         )
     with col_e4:
@@ -49,22 +53,26 @@ def render_tab3_executive(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame
             value=f"{local_spend_pct:.1f}%",
             delta="Target Korporat: 40.0%"
         )
+        st.progress(min(local_spend_pct / 40.0, 1.0))
 
-    st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin-bottom: 24px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
-    # 2. BOARD EXECUTIVE BRIEFING STATEMENT (DYNAMIC DUAL-SCENARIO INTEGRATION)
+    # 2. SINGLE UNIFIED EXECUTIVE BRIEFING MEMO CARD
     # -------------------------------------------------------------------------
     non_iso_vendors = len(df_suppliers[df_suppliers['ISO14001_Certified'] == 'No'])
     non_tkdn_vendors = len(df_suppliers[df_suppliers['TKDN_Compliant'] == 'No'])
 
-    locked_logistics = st.session_state.get('locked_logistics', None)
-    locked_decarb = st.session_state.get('locked_decarb', None)
+    # Status Badge Header HTML
+    if locked_decarb:
+        status_badge_html = "<span style='background-color: #005A36; color: #FFFFFF; font-size: 0.75rem; font-weight: 700; padding: 6px 14px; border-radius: 20px;'>● TARGET TERKUNCI</span>"
+    else:
+        status_badge_html = "<span style='background-color: #E87722; color: #FFFFFF; font-size: 0.75rem; font-weight: 700; padding: 6px 14px; border-radius: 20px;'>○ BASELINE STANDAR</span>"
 
-    # LOGISTICS SCENARIO TEXT
+    # Logistics HTML Content
     if locked_logistics:
         desiccant_cost = locked_logistics.get('desiccant_cost', 0)
-        desiccant_str = f" dengan Proteksi Sealed Desiccant Container (<b>${desiccant_cost:,.0f} USD</b>)" if desiccant_cost > 0 else ""
+        desiccant_str = f" dengan Proteksi Sealed Desiccant Container System (<b>${desiccant_cost:,.0f} USD</b>)" if desiccant_cost > 0 else ""
         mode_str = locked_logistics.get('mode_choice', 'Marine Barge (Laut)')
         origin_str = locked_logistics.get('origin', 'Balikpapan')
         dest_str = locked_logistics.get('destination', 'Sorong')
@@ -73,46 +81,64 @@ def render_tab3_executive(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame
         emiss_val = locked_logistics.get('est_cargo_emiss', 1.87)
         cargo_str = locked_logistics.get('cargo_type', 'Kargo Sensitif Kelembapan')
         
-        logistics_html = (
-            f"<b>3. Rekomendasi Logistik Koridor</b> <span style='color: #00A86B; font-size: 0.8rem; font-weight: 600;'>[Terkunci {locked_logistics['timestamp']}]</span>:<br>"
-            f"• <b>Koridor Utama</b>: <b>{origin_str} ➔ {dest_str} ({dist_val:,.0f} km)</b><br>"
-            f"• <b>Moda Terpilih</b>: <b>{mode_str}</b> (Waktu Transit: <b>{lead_val} Hari</b>, Estimasi Emisi: <b>{emiss_val:,.2f} tCO2e</b>)<br>"
-            f"• <b>Spesifikasi Kargo & Proteksi</b>: {cargo_str}{desiccant_str}"
+        logistics_inner_html = (
+            f"<p style='margin-bottom: 6px; font-size: 0.93rem; line-height: 1.5;'>• <b>Rute Koridor Utama</b>: <b>{origin_str} ➔ {dest_str} ({dist_val:,.0f} km)</b> [Terkunci: {locked_logistics['timestamp']}]</p>"
+            f"<p style='margin-bottom: 6px; font-size: 0.93rem; line-height: 1.5;'>• <b>Moda Terpilih & Dampak</b>: <b>{mode_str}</b> (Waktu Transit: <b>{lead_val} Hari</b>, Proyeksi Emisi Kargo: <b>{emiss_val:,.2f} tCO2e</b>).</p>"
+            f"<p style='margin-bottom: 0; font-size: 0.93rem; line-height: 1.5;'>• <b>Mitigasi Kargo</b>: Kategori <b>{cargo_str}</b>{desiccant_str}.</p>"
         )
     else:
-        logistics_html = (
-            "<b>3. Rekomendasi Logistik Koridor</b> <span style='color: #007AFF; font-size: 0.8rem; font-weight: 600;'>[Baseline Standar]</span>:<br>"
-            "Gunakan Moda Marine Barge untuk koridor antar-pulau jangka panjang dan pasang kontainer desiccant pada material presisi sensitif kelembapan."
+        logistics_inner_html = (
+            "<p style='margin-bottom: 6px; font-size: 0.93rem; line-height: 1.5;'>• <b>Strategi Moda Rantai Pasok</b>: Transisi penuh ke moda <b>Marine Barge (Laut)</b> untuk pengiriman material berat antar-pulau guna meminimalkan biaya logistik & emisi Scope 3.</p>"
+            "<p style='margin-bottom: 0; font-size: 0.93rem; line-height: 1.5;'>• <b>Proteksi Risiko Kargo</b>: Pengaplikasian <i>Sealed Desiccant Container System</i> untuk mengamankan sparepart presisi dari kelembapan iklim tropis.</p>"
         )
 
-    # DECARBONIZATION SCENARIO TEXT
+    # Decarbonization HTML Content
     if locked_decarb:
         sim = locked_decarb['sim_res']
-        decarb_html = (
-            f"<b>4. Proyeksi Optimalisasi Dekarbonisasi Tambang</b> <span style='color: #00A86B; font-size: 0.8rem; font-weight: 600;'>[Terkunci {locked_decarb['timestamp']}]</span>:<br>"
-            f"• <b>Kombinasi Kebijakan Disetujui</b>: Substitusi Biofuel B100 <b>{locked_decarb['biofuel_val']:.0f}%</b>, Local Sourcing <b>+{locked_decarb['local_proc_val']:.0f}%</b>, Shift Marine Barge <b>{locked_decarb['modal_shift_val']:.0f}%</b>, Retrofit EV <b>{locked_decarb['ev_val']:.0f}%</b><br>"
-            f"• <b>Proyeksi Reduksi Emisi & Biaya</b>: Memangkas emisi sebesar <b>{sim['total_abatement']:,.2f} tCO2e/tahun ({sim['pct_reduction']:.1f}% penurunan)</b> dengan estimasi efisiensi penghematan biaya <b>${sim['cost_savings_usd']:,.2f} USD</b><br>"
-            f"• <b>Dampak Lingkungan Nyata</b>: Ekuivalen dengan <b>{locked_decarb['trees_count']:,} pohon tropis ditanam</b>, <b>{locked_decarb['trucks_count']:,} truk diesel retired</b>, atau <b>{locked_decarb['homes_count']:,} rumah teraliri listrik bersih</b>."
+        decarb_inner_html = (
+            f"<p style='margin-bottom: 6px; font-size: 0.93rem; line-height: 1.5;'>• <b>Bauran Kebijakan Disetujui</b>: Substitusi Biofuel <b>{locked_decarb['biofuel_val']:.0f}%</b>, Belanja Lokal <b>+{locked_decarb['local_proc_val']:.0f}%</b>, Shift Laut <b>{locked_decarb['modal_shift_val']:.0f}%</b>, & EV Fleet <b>{locked_decarb['ev_val']:.0f}%</b> [Terkunci: {locked_decarb['timestamp']}].</p>"
+            f"<p style='margin-bottom: 6px; font-size: 0.93rem; line-height: 1.5;'>• <b>Target Reduksi & Efisiensi</b>: Memangkas emisi operasional sebesar <b>{sim['total_abatement']:,.2f} tCO2e/tahun ({sim['pct_reduction']:.1f}% penurunan)</b> serta penghematan biaya <b>${sim['cost_savings_usd']:,.2f} USD</b>.</p>"
+            f"<p style='margin-bottom: 0; font-size: 0.93rem; line-height: 1.5;'>• <b>Ekuivalensi Dampak Lingkungan</b>: Setara dengan <b>{locked_decarb['trees_count']:,} pohon tropis ditanam</b>, <b>{locked_decarb['trucks_count']:,} truk diesel retired</b>, atau listrik bersih bagi <b>{locked_decarb['homes_count']:,} rumah</b>.</p>"
         )
     else:
-        decarb_html = (
-            "<b>4. Proyeksi Optimalisasi Dekarbonisasi Tambang</b> <span style='color: #007AFF; font-size: 0.8rem; font-weight: 600;'>[Baseline Standar]</span>:<br>"
-            "Jalankan simulasi preskriptif di tab Simulator Rute lalu klik 'Kunci Skenario Dekarbonisasi' untuk menetapkan target kebijakan resmi."
+        decarb_inner_html = (
+            "<p style='margin-bottom: 6px; font-size: 0.93rem; line-height: 1.5;'>• <b>Status Skenario</b>: Masih Menggunakan Baseline Standar Operasional (Belum Ada Target Kebijakan Terkunci).</p>"
+            "<p style='margin-bottom: 0; font-size: 0.93rem; line-height: 1.5;'>• <b>Rekomendasi Keputusan Rapat</b>: Silakan jalankan simulasi di tab <b>Simulator Rute</b> dan tekan tombol <i>'Kunci Skenario Dekarbonisasi'</i> untuk menetapkan target resmi Direksi.</p>"
         )
 
-    st.markdown(f"""
-        <div class="petrosea-callout">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;">
-                <h4 style="margin: 0; font-size: 1.1rem; color: #FFFFFF;">Board of Directors Executive Briefing Statement ({selected_year})</h4>
-                <span style='background-color: rgba(0,168,107,0.15); color: #00A86B; padding: 4px 12px; border-radius: 4px; font-size: 0.85rem; font-weight: 600;'>Dual-Scenario Intelligence Locked</span>
-            </div>
-            <p style="margin-bottom: 10px;"><b>1. Diagnosis Emisi:</b> Total emisi operasional langsung (Scope 1 & 2) tercatat di level <b>{total_ops_emissions:,.2f} tCO2e</b> dengan intensitas emisi <b>{carbon_intensity:.2f} tCO2e/$1M pendapatan</b>. Realisasi pengadaan barang dari vendor lokal berada pada tingkat <b>{local_spend_pct:.1f}%</b>.</p>
-            <p style="margin-bottom: 10px;"><b>2. Audit Kepatuhan & Risiko Pemasok:</b> Ditemukan <b>{high_risk_count} pemasok berisiko tinggi</b> (skor ESG di bawah 75), <b>{non_iso_vendors} pemasok</b> belum bersertifikasi ISO 14001, dan <b>{non_tkdn_vendors} pemasok</b> belum memenuhi standar kelayakan TKDN korporat.</p>
-            <p style="margin-bottom: 10px;">{logistics_html}</p>
-            <p style="margin-top: 10px; margin-bottom: 0;">{decarb_html}</p>
-        </div>
-    """, unsafe_allow_html=True)
+    # Render Unified Memo Card
+    st.markdown(f"""<div class="petrosea-callout" style="padding: 24px; border-radius: 16px; margin-bottom: 24px;">
+<div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color, rgba(0,90,54,0.15)); padding-bottom: 12px; margin-bottom: 16px;">
+    <div>
+        <h3 style="margin: 0; font-size: 1.15rem; color: #005A36; font-weight: 800;">📄 MEMORANDUM HASIL AUDIT & KEPUTUSAN STRATEGIS DIREKSI</h3>
+        <p style="margin: 4px 0 0 0; font-size: 0.85rem; color: var(--text-color); opacity: 0.8;">Ringkasan Eksekutif Terpadu PT Petrosea Tbk — Tahun Operasional {selected_year}</p>
+    </div>
+    <div>
+        {status_badge_html}
+    </div>
+</div>
 
+<div style="margin-bottom: 16px;">
+    <h4 style="margin: 0 0 8px 0; font-size: 0.98rem; color: #E87722; font-weight: 700;">1. Diagnosis Emisi Operasional & Kepatuhan Pemasok (Scope 1, 2, 3)</h4>
+    <p style="margin-bottom: 6px; font-size: 0.93rem; line-height: 1.5;">• <b>Profil Emisi Direct & Indirect</b>: Total emisi operasional (Scope 1 & Scope 2) tercatat sebesar <b>{total_ops_emissions:,.2f} tCO2e</b> (Intensitas: <b>{carbon_intensity:.2f} tCO2e/$1M Pendapatan</b>).</p>
+    <p style="margin-bottom: 6px; font-size: 0.93rem; line-height: 1.5;">• <b>Realisasi Belanja Lokal</b>: Pencapaian belanja pemasok lokal berada di tingkat <b>{local_spend_pct:.1f}%</b> (Target Korporat: 40.0%).</p>
+    <p style="margin-bottom: 0; font-size: 0.93rem; line-height: 1.5;">• <b>Risiko Kepatuhan Rantai Pasok</b>: Teridentifikasi <b style="color:#E87722;">{high_risk_count} pemasok berisiko tinggi</b> (ESG &lt; 75), <b>{non_iso_vendors} vendor</b> non-ISO 14001, serta <b>{non_tkdn_vendors} vendor</b> belum memenuhi standar TKDN.</p>
+</div>
+
+<hr style="border: 0; border-top: 1px dashed var(--border-color, rgba(0,0,0,0.12)); margin: 16px 0;">
+
+<div style="margin-bottom: 16px;">
+    <h4 style="margin: 0 0 8px 0; font-size: 0.98rem; color: #E87722; font-weight: 700;">2. Rekomendasi Rantai Pasok & Logistik Koridor Utama</h4>
+    {logistics_inner_html}
+</div>
+
+<hr style="border: 0; border-top: 1px dashed var(--border-color, rgba(0,0,0,0.12)); margin: 16px 0;">
+
+<div>
+    <h4 style="margin: 0 0 8px 0; font-size: 0.98rem; color: #E87722; font-weight: 700;">3. Proyeksi Kebijakan Dekarbonisasi Tambang (Keputusan Rapat Direksi)</h4>
+    {decarb_inner_html}
+</div>
+</div>""", unsafe_allow_html=True)
 
     st.markdown("<div style='margin-bottom: 25px;'></div>", unsafe_allow_html=True)
 
@@ -166,3 +192,4 @@ def render_tab3_executive(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame
             mime="text/plain",
             use_container_width=True
         )
+

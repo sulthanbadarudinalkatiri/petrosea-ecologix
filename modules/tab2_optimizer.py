@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import streamlit.components.v1 as components
 import requests
 from typing import Dict, Any
+import concurrent.futures
 
 try:
     from streamlit_folium import st_folium
@@ -41,6 +42,11 @@ from modules.constants import (
     DESICCANT_COST_BARGE_USD,
     DESICCANT_COST_TRUCK_USD,
     HUMIDITY_THRESHOLD_DESICCANT_PCT,
+    MAX_BIOFUEL_MIX,
+    MAX_LOCAL_PROCUREMENT,
+    MAX_BARGE_MODAL_SHIFT,
+    MAX_EV_RETROFIT,
+    BIOFUEL_OVERLAP_FACTOR,
 )
 
 # -----------------------------------------------------------------------------
@@ -67,6 +73,7 @@ def fetch_weather_data(lat: float, lon: float) -> Dict[str, Any]:
         curr_humidity = humidity_list[0] if humidity_list else 75
 
         return {
+            "status": "OK",
             "temp": curr.get("temperature", 28.5),
             "kec_angin": curr.get("windspeed", 12.0),
             "arah_angin": f"{curr.get('winddirection', 180)}°",
@@ -76,9 +83,13 @@ def fetch_weather_data(lat: float, lon: float) -> Dict[str, Any]:
         }
     except Exception:
         return {
-            "temp": 29.0, "kec_angin": 10.5, "arah_angin": "160°",
-            "cuaca": "Cerah Berawan", "kelembapan": 78,
-            "lokasi_lengkap": f"Koordinat {lat:.2f}, {lon:.2f} (Simulasi Offline)"
+            "status": "ERROR",
+            "temp": None,
+            "kec_angin": None,
+            "arah_angin": None,
+            "cuaca": "Weather unavailable",
+            "kelembapan": None,
+            "lokasi_lengkap": f"Koordinat {lat:.2f}, {lon:.2f} (Source status: ERROR)"
         }
 
 @st.cache_data(ttl=3600)
@@ -117,6 +128,12 @@ def fetch_hourly_telemetry(lat: float, lon: float, mode: str = "historical") -> 
             "wind": h.get("wind_speed_10m", []),
             "code": h.get("weather_code", [])
         })
+
+        if mode == "historical" and not df.empty:
+            df['time_dt'] = pd.to_datetime(df['time'])
+            df = df[df['time_dt'] <= datetime.now()].copy()
+            df.drop(columns=['time_dt'], inplace=True)
+
         return df
     except Exception:
         return pd.DataFrame()
@@ -245,8 +262,9 @@ def calculate_decarbonization(
     total_s1_reduction = reduction_s1_ev + reduction_s1_biofuel
     post_s1 = max(0.0, base_s1 - total_s1_reduction)
 
-    reduction_s3_local = base_s3 * (local_proc_increase / 100.0) * LOCAL_PROC_LOGISTICS_ABATEMENT_FACTOR
     reduction_s3_barge = base_s3 * (modal_shift_barge / 100.0) * BARGE_INTERMODAL_SHIFT_ABATEMENT_FACTOR
+    remaining_s3_logistics = max(0.0, base_s3 - reduction_s3_barge)
+    reduction_s3_local = remaining_s3_logistics * (local_proc_increase / 100.0) * LOCAL_PROC_LOGISTICS_ABATEMENT_FACTOR
     total_s3_reduction = reduction_s3_local + reduction_s3_barge
     post_s3 = max(0.0, base_s3 - total_s3_reduction)
 
@@ -280,7 +298,7 @@ def solve_scipy_optimal_decarbonization(
     total_baseline = base_s1 + base_s3
     required_abatement = total_baseline * (target_pct / 100.0)
 
-    abate_biofuel_per_pct = base_s1 * (1.0 - 0.1 * EV_RETROFIT_ABATEMENT_FACTOR) * 0.01 * BIOFUEL_B100_ABATEMENT_FACTOR
+    abate_biofuel_per_pct = base_s1 * (1.0 - BIOFUEL_OVERLAP_FACTOR * EV_RETROFIT_ABATEMENT_FACTOR) * 0.01 * BIOFUEL_B100_ABATEMENT_FACTOR
     abate_local_per_pct = base_s3 * 0.01 * LOCAL_PROC_LOGISTICS_ABATEMENT_FACTOR
     abate_barge_per_pct = base_s3 * 0.01 * BARGE_INTERMODAL_SHIFT_ABATEMENT_FACTOR
     abate_ev_per_pct = base_s1 * 0.01 * EV_RETROFIT_ABATEMENT_FACTOR
@@ -297,11 +315,14 @@ def solve_scipy_optimal_decarbonization(
         abate_ev_per_pct * (mc_ev - carbon_price)
     ]
 
-    A_ub = [[-abate_biofuel_per_pct, -abate_local_per_pct, -abate_barge_per_pct, -abate_ev_per_pct]]
-    b_ub = [-required_abatement]
+    A_ub = [
+        [-abate_biofuel_per_pct, -abate_local_per_pct, -abate_barge_per_pct, -abate_ev_per_pct],
+        [abate_biofuel_per_pct, 0, 0, abate_ev_per_pct],
+        [0, abate_local_per_pct, abate_barge_per_pct, 0]
+    ]
+    b_ub = [-required_abatement, base_s1, base_s3]
 
-    # Bounds: Biofuel can go up to 100%, others up to 50%
-    bounds = [(0, 100), (0, 50), (0, 50), (0, 50)]
+    bounds = [(0, MAX_BIOFUEL_MIX), (0, MAX_LOCAL_PROCUREMENT), (0, MAX_BARGE_MODAL_SHIFT), (0, MAX_EV_RETROFIT)]
 
     res = linprog(c, A_ub=A_ub, b_ub=b_ub, bounds=bounds, method='highs')
 
@@ -317,8 +338,8 @@ def solve_scipy_optimal_decarbonization(
     else:
         return {
             "success": False,
-            "biofuel_val": 30.0, "local_proc_val": 25.0,
-            "modal_shift_val": 25.0, "ev_val": 15.0,
+            "biofuel_val": 0.0, "local_proc_val": 0.0,
+            "modal_shift_val": 0.0, "ev_val": 0.0,
             "opt_cost_usd": 0.0
         }
 
@@ -345,14 +366,29 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
     bad_weather_sites = []
     table_rows = []
 
+    def _fetch_both(row):
+        return (
+            row['Route_ID'],
+            fetch_weather_data(row['Lat_Dest'], row['Lon_Dest']),
+            fetch_aqi_data(row['Lat_Dest'], row['Lon_Dest'])
+        )
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_row = {executor.submit(_fetch_both, row): row for idx, row in df_routes.iterrows()}
+        for future in concurrent.futures.as_completed(future_to_row):
+            route_id, w_info, a_info = future.result()
+            weather_cache[route_id] = w_info
+            aqi_cache[route_id] = a_info
+
     for idx, row in df_routes.iterrows():
-        w_info = fetch_weather_data(row['Lat_Dest'], row['Lon_Dest'])
-        a_info = fetch_aqi_data(row['Lat_Dest'], row['Lon_Dest'])
-        weather_cache[row['Route_ID']] = w_info
-        aqi_cache[row['Route_ID']] = a_info
+        w_info = weather_cache[row['Route_ID']]
+        a_info = aqi_cache[row['Route_ID']]
         cuaca_text = w_info['cuaca']
         
-        if any(w in cuaca_text for w in ["Hujan", "Petir", "Deras", "Badai"]):
+        if w_info.get("status") == "ERROR":
+            status_risk, action_rec = "Data Tidak Tersedia (API Error)", "Gunakan Prosedur Standar"
+            cuaca_text = "Weather unavailable"
+        elif any(w in cuaca_text for w in ["Hujan", "Petir", "Deras", "Badai"]):
             status_risk, action_rec = "Risiko Tinggi (Hujan/Badai)", "Tunda Pengiriman Laut / Evaluasi Darat"
             bad_weather_sites.append(f"{row['Destination']} ({cuaca_text})")
         elif "Berawan" in cuaca_text or "Mendung" in cuaca_text:
@@ -365,8 +401,8 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
             "Tujuan Pengiriman": row['Destination'],
             "Jarak (km)": f"{row['Distance_km']:,} km",
             "Frekuensi": f"{row['Avg_Monthly_Trips']} Trip/bln",
-            "Cuaca Real-Time": f"{cuaca_text} ({w_info['temp']}°C)",
-            "Kelembapan": f"{w_info['kelembapan']}%",
+            "Cuaca Real-Time": f"{cuaca_text}" if w_info.get("status") == "ERROR" else f"{cuaca_text} ({w_info['temp']}°C)",
+            "Kelembapan": "N/A" if w_info.get("status") == "ERROR" else f"{w_info['kelembapan']}%",
             "Kualitas Udara": f"AQI {a_info['aqi']}",
             "Status Risiko": status_risk,
             "Rekomendasi Operasional": action_rec
@@ -531,8 +567,8 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
         """)
 
         registry_df = pd.DataFrame(ASSUMPTION_REGISTRY)
-        display_df = registry_df[['parameter', 'value', 'unit', 'source', 'confidence', 'category']].copy()
-        display_df.columns = ['Parameter', 'Nilai', 'Satuan', 'Sumber / Referensi', 'Confidence', 'Kategori']
+        display_df = registry_df[['parameter', 'value', 'unit', 'type', 'evidence_level', 'source', 'category']].copy()
+        display_df.columns = ['Parameter', 'Nilai', 'Satuan', 'Type', 'Evidence Level', 'Sumber / Referensi', 'Kategori']
 
         # Category filter
         categories = sorted(display_df['Kategori'].unique().tolist())
@@ -545,9 +581,9 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
         filtered_df = display_df[display_df['Kategori'].isin(selected_cats)]
 
         # Confidence summary badges
-        high_cnt = len(filtered_df[filtered_df['Confidence'] == 'High'])
-        med_cnt = len(filtered_df[filtered_df['Confidence'] == 'Medium'])
-        low_cnt = len(filtered_df[filtered_df['Confidence'] == 'Low'])
+        high_cnt = len(filtered_df[filtered_df['Evidence Level'] == 'High'])
+        med_cnt = len(filtered_df[filtered_df['Evidence Level'] == 'Medium'])
+        low_cnt = len(filtered_df[filtered_df['Evidence Level'] == 'Low'])
 
         st.markdown(f"""
             <div style="display: flex; gap: 10px; margin-bottom: 14px; align-items: center; font-size: 0.88rem; font-weight: 600;">
@@ -563,8 +599,9 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
                 "Parameter": st.column_config.TextColumn("Parameter", width="medium"),
                 "Nilai": st.column_config.NumberColumn("Nilai", format="%.4g"),
                 "Satuan": st.column_config.TextColumn("Satuan", width="small"),
+                "Type": st.column_config.TextColumn("Type", width="small"),
+                "Evidence Level": st.column_config.TextColumn("Evidence Level", width="small"),
                 "Sumber / Referensi": st.column_config.TextColumn("Sumber / Referensi", width="large"),
-                "Confidence": st.column_config.TextColumn("Confidence", width="small"),
                 "Kategori": st.column_config.TextColumn("Kategori", width="small"),
             },
             use_container_width=True, hide_index=True
@@ -585,26 +622,36 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
     st.markdown("#### Optimasi Biaya & Kebijakan Karbon")
     col_p1, col_p2, col_p3, col_p4 = st.columns(4)
     with col_p1:
-        if st.button("Target 10%", use_container_width=True):
-            st.session_state.biofuel_val, st.session_state.local_proc_val, st.session_state.ev_val, st.session_state.modal_shift_val, st.session_state.carbon_price_val = 10.0, 10.0, 5.0, 10.0, 15.0
+        if st.button("🎯 Target 5%", use_container_width=True):
+            st.session_state.biofuel_val = 5.0
+            st.session_state.local_proc_val = 10.0
+            st.session_state.modal_shift_val = 10.0
+            st.session_state.ev_val = 0.0
+            st.toast("Target 5% Reduksi Emisi Berhasil Diterapkan!", icon="🎯")
             st.rerun()
     with col_p2:
-        if st.button("Target 25%", use_container_width=True):
-            st.session_state.biofuel_val, st.session_state.local_proc_val, st.session_state.ev_val, st.session_state.modal_shift_val, st.session_state.carbon_price_val = 25.0, 20.0, 15.0, 20.0, 25.0
+        if st.button("🚀 Target 15%", use_container_width=True):
+            st.session_state.biofuel_val = 20.0
+            st.session_state.local_proc_val = 25.0
+            st.session_state.modal_shift_val = 25.0
+            st.session_state.ev_val = 5.0
+            st.toast("Target 15% Reduksi Emisi Berhasil Diterapkan!", icon="🚀")
             st.rerun()
     with col_p3:
-        if st.button("Auto Optimize 30%", use_container_width=True, type="primary"):
-            opt_res = solve_scipy_optimal_decarbonization(base_s1, base_s3, NET_ZERO_TARGET_PERCENTAGE)
+        if st.button("🏆 Target 30% (Net-Zero)", use_container_width=True, type="primary"):
+            opt_res = solve_scipy_optimal_decarbonization(base_s1, base_s3, NET_ZERO_TARGET_PERCENTAGE, st.session_state.carbon_price_val)
             if opt_res["success"]:
                 st.session_state.biofuel_val = opt_res["biofuel_val"]
                 st.session_state.local_proc_val = opt_res["local_proc_val"]
                 st.session_state.modal_shift_val = opt_res["modal_shift_val"]
                 st.session_state.ev_val = opt_res["ev_val"]
-                st.toast("Sedang menimbang 4 opsi kebijakan... Ketemu kombinasi paling hemat!", icon="✅")
+                st.toast("Optimalisasi Target 30% Net-Zero Petrosea Berhasil!", icon="🏆")
                 st.rerun()
+            else:
+                st.error("⚠️ Solver Failed: Tidak dapat menemukan kombinasi optimal yang memenuhi target 30% dengan konstrain saat ini.")
     with col_p4:
-        if st.button("Reset", use_container_width=True):
-            st.session_state.biofuel_val, st.session_state.local_proc_val, st.session_state.ev_val, st.session_state.modal_shift_val, st.session_state.carbon_price_val = 20.0, 15.0, 10.0, 15.0, DEFAULT_CARBON_PRICE_USD
+        if st.button("🔄 Reset", use_container_width=True):
+            st.session_state.biofuel_val, st.session_state.local_proc_val, st.session_state.ev_val, st.session_state.modal_shift_val, st.session_state.carbon_price_val = 0.0, 0.0, 0.0, 0.0, DEFAULT_CARBON_PRICE_USD
             st.rerun()
 
     st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True)
@@ -711,6 +758,7 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
 
     mode_key = "historical" if "Historis" in horizon_mode else "forecast"
     all_events_list = []
+    total_raw_obs = 0
 
     for idx, row in df_routes.iterrows():
         r_id = row['Route_ID']
@@ -720,6 +768,7 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
         
         df_h = fetch_hourly_telemetry(lat, lon, mode=mode_key)
         if not df_h.empty:
+            total_raw_obs += len(df_h)
             df_ev = reconstruct_event_journal(df_h, r_id, dest)
             if not df_ev.empty:
                 all_events_list.append(df_ev)
@@ -732,7 +781,7 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
             "Tingkat Keparahan", "Indikator Telemetri", "Tindakan Mitigasi K3"
         ])
 
-    total_obs = 168 * len(df_routes)
+    total_obs = total_raw_obs
     total_events = len(combined_events)
     critical_cnt = len(combined_events[combined_events['Tingkat Keparahan'].str.contains('Critical', case=False)]) if not combined_events.empty else 0
     warning_cnt = len(combined_events[combined_events['Tingkat Keparahan'].str.contains('Warning', case=False)]) if not combined_events.empty else 0
