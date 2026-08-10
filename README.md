@@ -66,6 +66,7 @@ flowchart TD
 ### 2. Optimasi Rute Intermodal & Simulasi Kebijakan Karbon
 - **Evaluasi Moda Pengiriman & Proteksi Material EPC**: Perbandingan 3 moda (Marine Barge, Trucking, Air Freight) dilengkapi pemilih rute koridor eksplisit dan kalkulasi otomatis container desiccant.
 - **Optimasi Biaya & Kebijakan Karbon**: Slider interaktif dan solver otomatis SciPy untuk mencari alokasi kebijakan paling efisien.
+- **Assumption Registry (Registri Asumsi)**: Transparansi data tingkat lanjut. Menampilkan seluruh nilai *magic numbers*, baseline, probabilitas, dan sumber konversi yang digunakan model, mencegah perhitungan *black-box*.
 - **Peta Rute Logistik**: Peta interaktif Folium yang memetakan koridor pengiriman darat dan laut beserta data cuaca real-time dari Open-Meteo.
 
 ---

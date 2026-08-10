@@ -268,11 +268,3 @@ with tab3:
 # 6. CORPORATE FOOTER & DATA PROVENANCE STAMP
 # -----------------------------------------------------------------------------
 st.markdown("---")
-st.markdown(
-    """
-    <div style="text-align: center; padding: 18px 10px; opacity: 0.85; font-family: 'Inter', sans-serif;">
-        <div style="font-size: 0.78rem; font-weight: 500;">Sumber Data Terverifikasi: Laporan Keberlanjutan PT Petrosea Tbk 2025 (Halaman 44, 46, 126)</div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)

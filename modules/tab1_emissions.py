@@ -301,10 +301,11 @@ def render_tab1(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame, selected
     )
 
     # -------------------------------------------------------------------------
-    # CONTEXTUAL BRIDGE CTA TO TAB 2 (NARRATIVE MOMENTUM)
+    # CONTEXTUAL BRIDGE CTA TO TAB 2 (NARRATIVE MOMENTUM) & SOURCE CITATION
     # -------------------------------------------------------------------------
     st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
     st.info(
         f"💡 **Langkah Selanjutnya**: Terdeteksi **{high_risk_count} pemasok berisiko tinggi** dan **{s3_pct:.1f}% emisi Scope 3** yang terkonsentrasi di pengadaan. "
         "Lihat prakiraan cuaca rute 7 hari ke depan & hitung opsi perbaikannya di tab **Simulator Rute** →"
     )
+

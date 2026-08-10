@@ -10,8 +10,6 @@ class EmissionRecord(BaseModel):
     Scope3_Cat1_PurchasedGoods_tCO2e: float = Field(default=0.0, ge=0)
     Revenue_MUSD: float = Field(default=0.0, ge=0)
     TKDN_Percentage: float = Field(default=0.0, ge=0, le=100)
-    B40_Fuel_Liters: float = Field(default=0.0, ge=0)
-    Electricity_MWh: float = Field(default=0.0, ge=0)
 
 class SupplierRecord(BaseModel):
     Supplier_ID: str

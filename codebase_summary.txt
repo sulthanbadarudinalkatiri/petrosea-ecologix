@@ -74,6 +74,7 @@ flowchart TD
 ### 2. Optimasi Rute Intermodal & Simulasi Kebijakan Karbon
 - **Evaluasi Moda Pengiriman & Proteksi Material EPC**: Perbandingan 3 moda (Marine Barge, Trucking, Air Freight) dilengkapi pemilih rute koridor eksplisit dan kalkulasi otomatis container desiccant.
 - **Optimasi Biaya & Kebijakan Karbon**: Slider interaktif dan solver otomatis SciPy untuk mencari alokasi kebijakan paling efisien.
+- **Assumption Registry (Registri Asumsi)**: Transparansi data tingkat lanjut. Menampilkan seluruh nilai *magic numbers*, baseline, probabilitas, dan sumber konversi yang digunakan model, mencegah perhitungan *black-box*.
 - **Peta Rute Logistik**: Peta interaktif Folium yang memetakan koridor pengiriman darat dan laut beserta data cuaca real-time dari Open-Meteo.
 
 ---
@@ -123,28 +124,6 @@ streamlit run app.py
 **Sulthan Badarudin Al-Katiri**  
 *Proyek Portofolio: Petrosea EcoLogix*
 
-
-/===========================================================================
-// FILE: runtime.txt
-===========================================================================/
-
-python-3.11
-
-
-/===========================================================================
-// FILE: requirements.txt
-===========================================================================/
-
-streamlit>=1.35.0
-pandas>=2.0.0
-numpy>=1.24.0
-plotly>=5.18.0
-pymupdf>=1.23.0
-pydantic>=2.5.0
-folium>=0.15.0
-streamlit-folium>=0.18.0
-requests>=2.31.0
-scipy>=1.10.0
 
 /===========================================================================
 // FILE: app.py
@@ -420,14 +399,6 @@ with tab3:
 # 6. CORPORATE FOOTER & DATA PROVENANCE STAMP
 # -----------------------------------------------------------------------------
 st.markdown("---")
-st.markdown(
-    """
-    <div style="text-align: center; padding: 18px 10px; opacity: 0.85; font-family: 'Inter', sans-serif;">
-        <div style="font-size: 0.78rem; font-weight: 500;">Sumber Data Terverifikasi: Laporan Keberlanjutan PT Petrosea Tbk 2025 (Halaman 44, 46, 126)</div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
 
 /===========================================================================
 // FILE: modules/constants.py
@@ -435,46 +406,376 @@ st.markdown(
 
 """
 Centralized Scientific & Operational Constants for Petrosea EcoLogix
-References:
-- IPCC 2019 Refinement to 2006 Guidelines for National Greenhouse Gas Inventories
+====================================================================
+Every numerical assumption used in the application is registered here
+with its source, confidence level, and unit — ensuring full model
+transparency for auditors, reviewers, and the Board of Directors.
+
+Primary References:
+- IPCC 2019 Refinement to 2006 Guidelines for National GHG Inventories
 - DEFRA / UK DESNZ 2024 Greenhouse Gas Reporting Conversion Factors
 - PT Petrosea Tbk Net-Zero Corporate Target 2030 (30% Abatement)
+- PT Petrosea Tbk Sustainability Report 2025
 """
 
-# -----------------------------------------------------------------------------
-# EMISSION ABATEMENT CONVERSION FACTORS (IPCC / DEFRA GUIDELINES)
-# -----------------------------------------------------------------------------
-# Net GHG reduction factor for B100 biodiesel substitution vs fossil diesel (Scope 1)
-BIOFUEL_B100_ABATEMENT_FACTOR: float = 0.18
+# =============================================================================
+# ASSUMPTION REGISTRY — Structured metadata for every model parameter
+# =============================================================================
+# Each entry: parameter, variable, value, unit, source, confidence, category, note
+# Confidence: High = peer-reviewed / regulatory | Medium = industry benchmark | Low = prototype estimate
 
-# Heavy equipment fleet electrification / EV retrofit efficiency gain (Scope 1)
-EV_RETROFIT_ABATEMENT_FACTOR: float = 0.25
+ASSUMPTION_REGISTRY = [
+    # --- EMISSION ABATEMENT FACTORS ---
+    {
+        "parameter": "B100 Biodiesel Abatement Factor",
+        "variable": "BIOFUEL_B100_ABATEMENT_FACTOR",
+        "value": 0.18,
+        "unit": "fraction (0–1)",
+        "source": "IPCC 2019, Vol. 2, Ch. 3, Table 3.4.1",
+        "confidence": "Medium",
+        "category": "Emission Factor",
+        "note": "Net lifecycle GHG reduction B100 vs fossil diesel (Scope 1)"
+    },
+    {
+        "parameter": "EV Retrofit Abatement Factor",
+        "variable": "EV_RETROFIT_ABATEMENT_FACTOR",
+        "value": 0.25,
+        "unit": "fraction (0–1)",
+        "source": "Prototype estimate (OEM fleet electrification benchmark)",
+        "confidence": "Low",
+        "category": "Emission Factor",
+        "note": "Scope 1 efficiency gain diesel-to-electric haul trucks"
+    },
+    {
+        "parameter": "Local Procurement Logistics Abatement Factor",
+        "variable": "LOCAL_PROC_LOGISTICS_ABATEMENT_FACTOR",
+        "value": 0.35,
+        "unit": "fraction (0–1)",
+        "source": "Prototype estimate (supply chain proximity model)",
+        "confidence": "Low",
+        "category": "Emission Factor",
+        "note": "Scope 3 Cat 1 & 4 reduction from local supply chain optimization"
+    },
+    {
+        "parameter": "Barge Intermodal Shift Abatement Factor",
+        "variable": "BARGE_INTERMODAL_SHIFT_ABATEMENT_FACTOR",
+        "value": 0.38,
+        "unit": "fraction (0–1)",
+        "source": "DEFRA 2024 freight modal emission factors (barge vs truck)",
+        "confidence": "Medium",
+        "category": "Emission Factor",
+        "note": "Scope 3 Cat 4 reduction from maritime barge vs road trucking"
+    },
+    # --- TRANSPORT EMISSION FACTORS PER TON-KM ---
+    {
+        "parameter": "Marine Barge Emission Factor",
+        "variable": "EMISSION_FACTOR_BARGE_KG_PER_TKM",
+        "value": 0.03,
+        "unit": "kgCO2/ton-km",
+        "source": "DEFRA 2024, Table 9 (Sea tanker, average)",
+        "confidence": "High",
+        "category": "Emission Factor",
+        "note": "Coastal & inter-island barge freight"
+    },
+    {
+        "parameter": "Trucking Emission Factor",
+        "variable": "EMISSION_FACTOR_TRUCK_KG_PER_TKM",
+        "value": 0.15,
+        "unit": "kgCO2/ton-km",
+        "source": "DEFRA 2024, Table 6 (HGV rigid, laden)",
+        "confidence": "High",
+        "category": "Emission Factor",
+        "note": "Heavy goods vehicle road freight, Kalimantan corridors"
+    },
+    {
+        "parameter": "Air Freight Emission Factor",
+        "variable": "EMISSION_FACTOR_AIR_KG_PER_TKM",
+        "value": 1.20,
+        "unit": "kgCO2/ton-km",
+        "source": "DEFRA 2024, Table 11 (Air freight, domestic)",
+        "confidence": "High",
+        "category": "Emission Factor",
+        "note": "Emergency air freight for critical mining spareparts"
+    },
+    # --- MARGINAL ABATEMENT COST (MAC) COEFFICIENTS ---
+    {
+        "parameter": "MAC: Biofuel Substitution",
+        "variable": "MC_BIOFUEL_USD_PER_TCO2E",
+        "value": 14.0,
+        "unit": "USD/tCO2e",
+        "source": "Prototype estimate (biodiesel price premium model)",
+        "confidence": "Low",
+        "category": "Cost Coefficient",
+        "note": "Net cost of biofuel substitution per ton CO2 abated"
+    },
+    {
+        "parameter": "MAC: Local Procurement",
+        "variable": "MC_LOCAL_PROCUREMENT_USD_PER_TCO2E",
+        "value": -18.5,
+        "unit": "USD/tCO2e",
+        "source": "Prototype estimate (logistics cost saving model)",
+        "confidence": "Low",
+        "category": "Cost Coefficient",
+        "note": "Negative = net savings from reduced transport distance"
+    },
+    {
+        "parameter": "MAC: Barge Modal Shift",
+        "variable": "MC_BARGE_MODAL_SHIFT_USD_PER_TCO2E",
+        "value": -12.0,
+        "unit": "USD/tCO2e",
+        "source": "Prototype estimate (freight rate differential model)",
+        "confidence": "Low",
+        "category": "Cost Coefficient",
+        "note": "Negative = net savings from cheaper barge vs truck rates"
+    },
+    {
+        "parameter": "MAC: EV Fleet Retrofit",
+        "variable": "MC_EV_RETROFIT_USD_PER_TCO2E",
+        "value": 45.0,
+        "unit": "USD/tCO2e",
+        "source": "Prototype estimate (CAPEX/OPEX differential model)",
+        "confidence": "Low",
+        "category": "Cost Coefficient",
+        "note": "Upfront cost premium for electric haul truck conversion"
+    },
+    # --- TRANSPORT OPERATIONAL PARAMETERS ---
+    {
+        "parameter": "Barge Speed",
+        "variable": "BARGE_SPEED_KM_PER_DAY",
+        "value": 120,
+        "unit": "km/hari",
+        "source": "Operational estimate (coastal barge, Kalimantan)",
+        "confidence": "Medium",
+        "category": "Operational",
+        "note": "Average daily distance for inter-island barge freight"
+    },
+    {
+        "parameter": "Truck Speed",
+        "variable": "TRUCK_SPEED_KM_PER_DAY",
+        "value": 350,
+        "unit": "km/hari",
+        "source": "Operational estimate (Kalimantan mining roads)",
+        "confidence": "Medium",
+        "category": "Operational",
+        "note": "Average daily distance for heavy goods vehicle"
+    },
+    {
+        "parameter": "Barge Loading Buffer",
+        "variable": "BARGE_LOADING_BUFFER_DAYS",
+        "value": 3,
+        "unit": "hari",
+        "source": "Operational estimate (port loading/unloading)",
+        "confidence": "Medium",
+        "category": "Operational",
+        "note": "Additional days for port handling & scheduling"
+    },
+    {
+        "parameter": "Truck Loading Buffer",
+        "variable": "TRUCK_LOADING_BUFFER_DAYS",
+        "value": 1,
+        "unit": "hari",
+        "source": "Operational estimate (warehouse dispatch)",
+        "confidence": "Medium",
+        "category": "Operational",
+        "note": "Additional day for loading & dispatch"
+    },
+    {
+        "parameter": "Desiccant Cost (Barge, Sealed Container)",
+        "variable": "DESICCANT_COST_BARGE_USD",
+        "value": 450.0,
+        "unit": "USD",
+        "source": "Prototype estimate (sealed container market price)",
+        "confidence": "Low",
+        "category": "Operational",
+        "note": "Material protection for humidity-sensitive cargo via sea"
+    },
+    {
+        "parameter": "Desiccant Cost (Truck, Standard)",
+        "variable": "DESICCANT_COST_TRUCK_USD",
+        "value": 250.0,
+        "unit": "USD",
+        "source": "Prototype estimate (standard desiccant market price)",
+        "confidence": "Low",
+        "category": "Operational",
+        "note": "Material protection for humidity-sensitive cargo via road"
+    },
+    {
+        "parameter": "Humidity Threshold for Desiccant",
+        "variable": "HUMIDITY_THRESHOLD_DESICCANT_PCT",
+        "value": 80,
+        "unit": "% RH",
+        "source": "Material protection guideline (general industry)",
+        "confidence": "Medium",
+        "category": "Operational",
+        "note": "Above this threshold, desiccant protection is recommended"
+    },
+    {
+        "parameter": "Default Payload (Fallback)",
+        "variable": "DEFAULT_PAYLOAD_TONS",
+        "value": 50.0,
+        "unit": "metric tons",
+        "source": "Fallback default (used only when route data unavailable)",
+        "confidence": "Medium",
+        "category": "Operational",
+        "note": "Replaced by actual Avg_Payload_Tons from route CSV when available"
+    },
+    # --- CORPORATE TARGETS & GOVERNANCE ---
+    {
+        "parameter": "Net-Zero Target 2030",
+        "variable": "NET_ZERO_TARGET_PERCENTAGE",
+        "value": 30.0,
+        "unit": "% reduction",
+        "source": "PT Petrosea Tbk Corporate Strategy 2030",
+        "confidence": "High",
+        "category": "Governance",
+        "note": "Official corporate abatement target"
+    },
+    {
+        "parameter": "Default Carbon Price",
+        "variable": "DEFAULT_CARBON_PRICE_USD",
+        "value": 25.0,
+        "unit": "USD/tCO2e",
+        "source": "Prototype estimate (above Indonesia Law No. 7/2021 floor of ~$1.90)",
+        "confidence": "Low",
+        "category": "Governance",
+        "note": "Adjustable via UI slider. Indonesia carbon tax floor: IDR 30,000/tCO2e"
+    },
+    {
+        "parameter": "ESG High-Risk Threshold",
+        "variable": "ESG_HIGH_RISK_THRESHOLD",
+        "value": 75.0,
+        "unit": "score (0–100)",
+        "source": "Petrosea internal governance standard",
+        "confidence": "Medium",
+        "category": "Governance",
+        "note": "Suppliers scoring below 75 require priority audit"
+    },
+    {
+        "parameter": "Max Benchmark Lead Time",
+        "variable": "MAX_BENCHMARK_LEAD_TIME_DAYS",
+        "value": 60,
+        "unit": "hari",
+        "source": "Industry benchmark (mining supply chain)",
+        "confidence": "Medium",
+        "category": "Governance",
+        "note": "Maximum expected supply chain lead time"
+    },
+    {
+        "parameter": "Max Benchmark Carbon Intensity",
+        "variable": "MAX_BENCHMARK_CARBON_INTENSITY",
+        "value": 1.0,
+        "unit": "kgCO2/USD",
+        "source": "Industry benchmark (vendor carbon efficiency)",
+        "confidence": "Medium",
+        "category": "Governance",
+        "note": "Baseline maximum acceptable vendor carbon intensity"
+    },
+    # --- ENVIRONMENTAL EQUIVALENCY CONVERSIONS ---
+    {
+        "parameter": "Trees Planted per tCO2e",
+        "variable": "TREES_PLANTED_PER_TON_CO2",
+        "value": 45.45,
+        "unit": "pohon/tCO2e",
+        "source": "IPCC tropical forest sequestration (~22 kgCO2/tree/yr)",
+        "confidence": "Medium",
+        "category": "Equivalency",
+        "note": "Mature Borneo rainforest trees absorbing CO2 annually"
+    },
+    {
+        "parameter": "Diesel Trucks Retired per tCO2e",
+        "variable": "DIESEL_TRUCKS_RETIRED_PER_TON_CO2",
+        "value": 0.217,
+        "unit": "truk/tCO2e",
+        "source": "Prototype estimate (simplified conversion)",
+        "confidence": "Low",
+        "category": "Equivalency",
+        "note": "Approximate heavy mining haul truck equivalent"
+    },
+    {
+        "parameter": "Homes Powered per tCO2e",
+        "variable": "HOMES_POWERED_PER_TON_CO2",
+        "value": 0.125,
+        "unit": "rumah/tCO2e",
+        "source": "Prototype estimate (US EPA benchmark, not Indonesia-adjusted)",
+        "confidence": "Low",
+        "category": "Equivalency",
+        "note": "Households powered by clean energy equivalent"
+    },
+    # --- SCOPE 3 EMISSION CATEGORY ALLOCATIONS ---
+    {
+        "parameter": "Scope 3 Cat 4 Allocation (2023-2024)",
+        "variable": "SCOPE3_2023_24_CAT4_ALLOCATION",
+        "value": 0.70,
+        "unit": "ratio",
+        "source": "Derived Assumption",
+        "confidence": "Low",
+        "category": "Sustainability",
+        "note": "Upstream Logistics allocation before 2025 refinement"
+    },
+    {
+        "parameter": "Scope 3 Cat 6 Allocation (2023-2024)",
+        "variable": "SCOPE3_2023_24_CAT6_ALLOCATION",
+        "value": 0.10,
+        "unit": "ratio",
+        "source": "Derived Assumption",
+        "confidence": "Low",
+        "category": "Sustainability",
+        "note": "Business Travel allocation before 2025 refinement"
+    },
+    {
+        "parameter": "Scope 3 Cat 1 Allocation (2023-2024)",
+        "variable": "SCOPE3_2023_24_CAT1_ALLOCATION",
+        "value": 0.20,
+        "unit": "ratio",
+        "source": "Derived Assumption",
+        "confidence": "Low",
+        "category": "Sustainability",
+        "note": "Purchased Goods allocation before 2025 refinement"
+    },
+    {
+        "parameter": "Scope 3 Cat 4 Allocation (2025)",
+        "variable": "SCOPE3_2025_CAT4_ALLOCATION",
+        "value": 0.186,
+        "unit": "ratio",
+        "source": "Model Reconstruction",
+        "confidence": "Medium",
+        "category": "Sustainability",
+        "note": "Refined Upstream Logistics allocation from 2025 PDF disclosures"
+    },
+    {
+        "parameter": "Scope 3 Cat 6 Allocation (2025)",
+        "variable": "SCOPE3_2025_CAT6_ALLOCATION",
+        "value": 0.0105,
+        "unit": "ratio",
+        "source": "Model Reconstruction",
+        "confidence": "Medium",
+        "category": "Sustainability",
+        "note": "Refined Business Travel allocation from 2025 PDF disclosures"
+    },
+    {
+        "parameter": "Scope 3 Cat 1 Allocation (2025)",
+        "variable": "SCOPE3_2025_CAT1_ALLOCATION",
+        "value": 0.8035,
+        "unit": "ratio",
+        "source": "Model Reconstruction",
+        "confidence": "Medium",
+        "category": "Sustainability",
+        "note": "Refined Purchased Goods allocation from 2025 PDF disclosures"
+    },
+]
 
-# Scope 3 Category 1 & 4 reduction from local supply chain optimization (GO LOCAL)
-LOCAL_PROC_LOGISTICS_ABATEMENT_FACTOR: float = 0.35
+# =============================================================================
+# NAMED CONSTANTS — Top-level variables for backward compatibility
+# =============================================================================
+# These are auto-derived from ASSUMPTION_REGISTRY so every import still works.
 
-# Scope 3 Category 4 reduction from maritime barge intermodal shift vs road trucking
-BARGE_INTERMODAL_SHIFT_ABATEMENT_FACTOR: float = 0.38
+def _build_constants():
+    """Extract named constants from the registry into module-level variables."""
+    g = globals()
+    for entry in ASSUMPTION_REGISTRY:
+        g[entry["variable"]] = entry["value"]
 
-# -----------------------------------------------------------------------------
-# DEFAULT TARGETS & CARBON TAX BENCHMARKS
-# -----------------------------------------------------------------------------
-NET_ZERO_TARGET_PERCENTAGE: float = 30.0  # Petrosea 2030 Corporate Abatement Target (%)
-DEFAULT_CARBON_PRICE_USD: float = 25.0    # Carbon tax / credit baseline price ($ USD / tCO2e)
-
-# -----------------------------------------------------------------------------
-# LOGISTICS & SUPPLIER SCORECARD NORMALIZATION BENCHMARKS
-# -----------------------------------------------------------------------------
-MAX_BENCHMARK_LEAD_TIME_DAYS: int = 60      # Maximum mining supply chain lead time benchmark (days)
-MAX_BENCHMARK_CARBON_INTENSITY: float = 1.0   # Baseline maximum vendor carbon intensity (kgCO2 / $ USD)
-ESG_HIGH_RISK_THRESHOLD: float = 75.0       # ESG Score below 75 requires priority audit
-
-# -----------------------------------------------------------------------------
-# REAL ENVIRONMENTAL IMPACT CONVERSION EQUIVALENCIES (KALIMANTAN ECOSYSTEM)
-# -----------------------------------------------------------------------------
-TREES_PLANTED_PER_TON_CO2: float = 45.45            # Mature rainforest trees planted in Borneo per tCO2e
-DIESEL_TRUCKS_RETIRED_PER_TON_CO2: float = 0.217    # Heavy mining diesel haul trucks retired per tCO2e
-HOMES_POWERED_PER_TON_CO2: float = 0.125            # Balikpapan households powered by clean energy per tCO2e
+_build_constants()
 
 
 /===========================================================================
@@ -493,8 +794,6 @@ class EmissionRecord(BaseModel):
     Scope3_Cat1_PurchasedGoods_tCO2e: float = Field(default=0.0, ge=0)
     Revenue_MUSD: float = Field(default=0.0, ge=0)
     TKDN_Percentage: float = Field(default=0.0, ge=0, le=100)
-    B40_Fuel_Liters: float = Field(default=0.0, ge=0)
-    Electricity_MWh: float = Field(default=0.0, ge=0)
 
 class SupplierRecord(BaseModel):
     Supplier_ID: str
@@ -914,13 +1213,14 @@ def render_tab1(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame, selected
     )
 
     # -------------------------------------------------------------------------
-    # CONTEXTUAL BRIDGE CTA TO TAB 2 (NARRATIVE MOMENTUM)
+    # CONTEXTUAL BRIDGE CTA TO TAB 2 (NARRATIVE MOMENTUM) & SOURCE CITATION
     # -------------------------------------------------------------------------
     st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
     st.info(
         f"💡 **Langkah Selanjutnya**: Terdeteksi **{high_risk_count} pemasok berisiko tinggi** dan **{s3_pct:.1f}% emisi Scope 3** yang terkonsentrasi di pengadaan. "
         "Lihat prakiraan cuaca rute 7 hari ke depan & hitung opsi perbaikannya di tab **Simulator Rute** →"
     )
+
 
 
 /===========================================================================
@@ -945,6 +1245,7 @@ except ImportError:
     HAS_ST_FOLIUM = False
 
 from modules.constants import (
+    ASSUMPTION_REGISTRY,
     BIOFUEL_B100_ABATEMENT_FACTOR,
     EV_RETROFIT_ABATEMENT_FACTOR,
     LOCAL_PROC_LOGISTICS_ABATEMENT_FACTOR,
@@ -953,7 +1254,22 @@ from modules.constants import (
     DEFAULT_CARBON_PRICE_USD,
     TREES_PLANTED_PER_TON_CO2,
     DIESEL_TRUCKS_RETIRED_PER_TON_CO2,
-    HOMES_POWERED_PER_TON_CO2
+    HOMES_POWERED_PER_TON_CO2,
+    EMISSION_FACTOR_BARGE_KG_PER_TKM,
+    EMISSION_FACTOR_TRUCK_KG_PER_TKM,
+    EMISSION_FACTOR_AIR_KG_PER_TKM,
+    MC_BIOFUEL_USD_PER_TCO2E,
+    MC_LOCAL_PROCUREMENT_USD_PER_TCO2E,
+    MC_BARGE_MODAL_SHIFT_USD_PER_TCO2E,
+    MC_EV_RETROFIT_USD_PER_TCO2E,
+    DEFAULT_PAYLOAD_TONS,
+    BARGE_SPEED_KM_PER_DAY,
+    TRUCK_SPEED_KM_PER_DAY,
+    BARGE_LOADING_BUFFER_DAYS,
+    TRUCK_LOADING_BUFFER_DAYS,
+    DESICCANT_COST_BARGE_USD,
+    DESICCANT_COST_TRUCK_USD,
+    HUMIDITY_THRESHOLD_DESICCANT_PCT,
 )
 
 # -----------------------------------------------------------------------------
@@ -1008,6 +1324,138 @@ def fetch_aqi_data(lat: float, lon: float) -> Dict[str, Any]:
     except Exception:
         return {"aqi": 45, "pm10": 20.0, "pm2_5": 14.0}
 
+@st.cache_data(ttl=3600)
+def fetch_hourly_telemetry(lat: float, lon: float, mode: str = "historical") -> pd.DataFrame:
+    """
+    Fetch 168 hours of hourly weather telemetry data from Open-Meteo API.
+    mode: 'historical' (past 7 days = 168 hours) or 'forecast' (next 7 days = 168 hours)
+    """
+    try:
+        if mode == "historical":
+            url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&past_days=7&forecast_days=1&hourly=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,weather_code&timezone=auto"
+        else:
+            url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&forecast_days=7&hourly=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,weather_code&timezone=auto"
+        
+        res = requests.get(url, timeout=4).json()
+        h = res.get("hourly", {})
+        df = pd.DataFrame({
+            "time": h.get("time", []),
+            "temp": h.get("temperature_2m", []),
+            "hum": h.get("relative_humidity_2m", []),
+            "precip": h.get("precipitation", []),
+            "wind": h.get("wind_speed_10m", []),
+            "code": h.get("weather_code", [])
+        })
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+def reconstruct_event_journal(df_h: pd.DataFrame, route_id: str, dest: str) -> pd.DataFrame:
+    """
+    Filters and deduplicates 168 hourly observations into meaningful operational events.
+    Applies Severity Rules (Advisory, Warning, Critical) & Compound Risk Detection.
+    Merges consecutive hourly triggers into single Event Windows with authentic timestamps.
+    """
+    if df_h.empty:
+        return pd.DataFrame()
+
+    events = []
+    current_event = None
+
+    for idx, row in df_h.iterrows():
+        try:
+            t_dt = datetime.strptime(row['time'], '%Y-%m-%dT%H:%M')
+        except Exception:
+            continue
+
+        w = float(row.get('wind', 0.0))
+        p = float(row.get('precip', 0.0))
+        h = float(row.get('hum', 75.0))
+
+        has_wind = w >= 25.0
+        has_rain = p >= 1.0
+        has_hum = h >= 85.0
+
+        if not (has_wind or has_rain or has_hum):
+            if current_event:
+                events.append(current_event)
+                current_event = None
+            continue
+
+        # Severity & Compound Risk Classification
+        if has_wind and has_rain:
+            severity = "🔴 Critical (Compound Risk)"
+            category = "COMPOUND RISK: High Wind & Heavy Rain"
+            risk_desc = f"Angin Kencang ({w:.1f} km/j) + Hujan Deras ({p:.1f} mm/jam)"
+            action = "Tunda Keberangkatan Marine Barge & Penambatan Armada"
+        elif has_wind:
+            severity = "🟡 Warning"
+            category = "SUSTAINED HIGH WIND"
+            risk_desc = f"Kecepatan Angin Kencang {w:.1f} km/j"
+            action = "Pengawasan Stabilitas Tugboat & Evaluasi Operasi Laut"
+        elif has_rain:
+            severity = "🟡 Warning"
+            category = "HEAVY PRECIPITATION"
+            risk_desc = f"Curah Hujan Tinggi {p:.1f} mm/jam"
+            action = "Pembatasan Kecepatan Truk 30 km/j & Evaluasi Drainage Situs"
+        else:
+            severity = "🟢 Advisory"
+            category = "HIGH HUMIDITY ENVIRONMENT"
+            risk_desc = f"Kelembapan Udara Ekstrem {h:.0f}%"
+            action = "Proteksi Sealed Desiccant Container Wajib"
+
+        if current_event is None:
+            current_event = {
+                'route_id': route_id,
+                'dest': dest,
+                'start_dt': t_dt,
+                'end_dt': t_dt,
+                'category': category,
+                'severity': severity,
+                'risk_desc': risk_desc,
+                'action': action,
+                'hours_count': 1
+            }
+        else:
+            time_diff = (t_dt - current_event['end_dt']).total_seconds() / 3600.0
+            if time_diff == 1.0 and current_event['category'] == category and current_event['route_id'] == route_id:
+                current_event['end_dt'] = t_dt
+                current_event['hours_count'] += 1
+            else:
+                events.append(current_event)
+                current_event = {
+                    'route_id': route_id,
+                    'dest': dest,
+                    'start_dt': t_dt,
+                    'end_dt': t_dt,
+                    'category': category,
+                    'severity': severity,
+                    'risk_desc': risk_desc,
+                    'action': action,
+                    'hours_count': 1
+                }
+
+    if current_event:
+        events.append(current_event)
+
+    formatted_rows = []
+    for e in events:
+        start_str = e['start_dt'].strftime('%d %b %H:%M')
+        end_str = e['end_dt'].strftime('%H:%M')
+        duration_str = f"{e['hours_count']} Jam" if e['hours_count'] > 1 else "1 Jam"
+        window_str = f"{start_str} – {end_str} ({duration_str})"
+
+        formatted_rows.append({
+            "Rentang Waktu (Telemetri)": window_str,
+            "Rute / Situs": f"{e['route_id']} ({e['dest']})",
+            "Kategori Event Risiko": e['category'],
+            "Tingkat Keparahan": e['severity'],
+            "Indikator Telemetri": e['risk_desc'],
+            "Tindakan Mitigasi K3": e['action']
+        })
+
+    return pd.DataFrame(formatted_rows)
+
 # -----------------------------------------------------------------------------
 # 2. SEQUENTIAL SCOPE 1 PHYSICS & ECONOMIC COST SCIPY SOLVER
 # -----------------------------------------------------------------------------
@@ -1034,10 +1482,10 @@ def calculate_decarbonization(
     total_abatement = total_s1_reduction + total_s3_reduction
     pct_reduction = (total_abatement / (base_s1 + base_s3)) * 100.0 if (base_s1 + base_s3) > 0 else 0.0
 
-    mc_biofuel = 14.0
-    mc_local = -18.5
-    mc_barge = -12.0
-    mc_ev = 45.0
+    mc_biofuel = MC_BIOFUEL_USD_PER_TCO2E
+    mc_local = MC_LOCAL_PROCUREMENT_USD_PER_TCO2E
+    mc_barge = MC_BARGE_MODAL_SHIFT_USD_PER_TCO2E
+    mc_ev = MC_EV_RETROFIT_USD_PER_TCO2E
 
     cost_biofuel = reduction_s1_biofuel * (mc_biofuel - carbon_price)
     cost_local = reduction_s3_local * (mc_local - carbon_price)
@@ -1066,10 +1514,10 @@ def solve_scipy_optimal_decarbonization(
     abate_barge_per_pct = base_s3 * 0.01 * BARGE_INTERMODAL_SHIFT_ABATEMENT_FACTOR
     abate_ev_per_pct = base_s1 * 0.01 * EV_RETROFIT_ABATEMENT_FACTOR
 
-    mc_biofuel = 14.0
-    mc_local = -18.5
-    mc_barge = -12.0
-    mc_ev = 45.0
+    mc_biofuel = MC_BIOFUEL_USD_PER_TCO2E
+    mc_local = MC_LOCAL_PROCUREMENT_USD_PER_TCO2E
+    mc_barge = MC_BARGE_MODAL_SHIFT_USD_PER_TCO2E
+    mc_ev = MC_EV_RETROFIT_USD_PER_TCO2E
 
     c = [
         abate_biofuel_per_pct * (mc_biofuel - carbon_price),
@@ -1116,10 +1564,10 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
     st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
-    # FITUR 1: PREDIKSI IKLIM & NOTIFIKASI RISIKO K3 7 HARI KE DEPAN (ATAS)
+    # FITUR 1: PREDIKSI CUACA & EARLY WARNING RISIKO K3
     # -------------------------------------------------------------------------
-    st.markdown("### 1. Prediksi iklim & notifikasi risiko K3 7 hari ke depan")
-    st.caption("Prakiraan cuaca real-time & Indeks Kualitas Udara (AQI) dari Open-Meteo API di seluruh koridor pengiriman Petrosea.")
+    st.markdown("### 1. Prediksi Cuaca & Early Warning Risiko K3")
+    st.caption("Melihat risiko sebelum menjadi gangguan. EcoLogix memantau prakiraan cuaca dan AQI pada koridor pengiriman untuk mengidentifikasi kondisi yang berpotensi memerlukan perhatian operasional dalam 7 hari ke depan.")
 
     weather_cache = {}
     aqi_cache = {}
@@ -1242,20 +1690,22 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
                 key="mode_choice_radio"
             )
         with col_c2:
+            payload = r_sel_row['Avg_Payload_Tons'] if r_sel_row['Avg_Payload_Tons'] > 0 else DEFAULT_PAYLOAD_TONS
+
             if "Barge" in mode_choice:
-                lead_days = int(np.ceil(dist_km / 120)) + 3
-                mode_emiss_factor = 0.03
-                desiccant_cost = 450.0 if ("Sensitif" in cargo_type and curr_hum > 80) else 0.0
+                lead_days = int(np.ceil(dist_km / BARGE_SPEED_KM_PER_DAY)) + BARGE_LOADING_BUFFER_DAYS
+                mode_emiss_factor = EMISSION_FACTOR_BARGE_KG_PER_TKM
+                desiccant_cost = DESICCANT_COST_BARGE_USD if ("Sensitif" in cargo_type and curr_hum > HUMIDITY_THRESHOLD_DESICCANT_PCT) else 0.0
             elif "Trucking" in mode_choice:
-                lead_days = int(np.ceil(dist_km / 350)) + 1
-                mode_emiss_factor = 0.15
-                desiccant_cost = 250.0 if ("Sensitif" in cargo_type and curr_hum > 80) else 0.0
+                lead_days = int(np.ceil(dist_km / TRUCK_SPEED_KM_PER_DAY)) + TRUCK_LOADING_BUFFER_DAYS
+                mode_emiss_factor = EMISSION_FACTOR_TRUCK_KG_PER_TKM
+                desiccant_cost = DESICCANT_COST_TRUCK_USD if ("Sensitif" in cargo_type and curr_hum > HUMIDITY_THRESHOLD_DESICCANT_PCT) else 0.0
             else:  # Air Freight
                 lead_days = 1
-                mode_emiss_factor = 1.20
+                mode_emiss_factor = EMISSION_FACTOR_AIR_KG_PER_TKM
                 desiccant_cost = 0.0
 
-            est_cargo_emiss = (dist_km * 50.0 * mode_emiss_factor) / 1000.0
+            est_cargo_emiss = (dist_km * payload * mode_emiss_factor) / 1000.0
 
             col_t1, col_t2, col_t3, col_t4 = st.columns(4)
             with col_t1: st.metric("Waktu Transit", f"{lead_days} Hari")
@@ -1266,13 +1716,13 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
         st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
         st.markdown("##### Matriks Perbandingan Trade-off 3 Moda Pengiriman")
         
-        barge_emiss = (dist_km * 50.0 * 0.03) / 1000.0
-        truck_emiss = (dist_km * 50.0 * 0.15) / 1000.0
-        air_emiss = (dist_km * 50.0 * 1.20) / 1000.0
+        barge_emiss = (dist_km * payload * EMISSION_FACTOR_BARGE_KG_PER_TKM) / 1000.0
+        truck_emiss = (dist_km * payload * EMISSION_FACTOR_TRUCK_KG_PER_TKM) / 1000.0
+        air_emiss = (dist_km * payload * EMISSION_FACTOR_AIR_KG_PER_TKM) / 1000.0
         
         matrix_df = pd.DataFrame([
-            {"Moda Pengiriman": "Marine Barge (Laut)", "Waktu Transit": f"{int(np.ceil(dist_km / 120)) + 3} Hari", "Emisi Scope 3": f"{barge_emiss:,.2f} tCO2e", "Kelembapan Koridor": f"{curr_hum}%", "Biaya Proteksi Material": "$450 USD (Sealed Desiccant)" if ("Sensitif" in cargo_type and curr_hum > 80) else "$0 USD", "Rekomendasi": "🟢 Paling Hemat Karbon & Biaya"},
-            {"Moda Pengiriman": "Trucking (Darat)", "Waktu Transit": f"{int(np.ceil(dist_km / 350)) + 1} Hari", "Emisi Scope 3": f"{truck_emiss:,.2f} tCO2e", "Kelembapan Koridor": f"{curr_hum}%", "Biaya Proteksi Material": "$250 USD (Desiccant Standard)" if ("Sensitif" in cargo_type and curr_hum > 80) else "$0 USD", "Rekomendasi": "🟡 Keseimbangan Waktu Pasokan"},
+            {"Moda Pengiriman": "Marine Barge (Laut)", "Waktu Transit": f"{int(np.ceil(dist_km / BARGE_SPEED_KM_PER_DAY)) + BARGE_LOADING_BUFFER_DAYS} Hari", "Emisi Scope 3": f"{barge_emiss:,.2f} tCO2e", "Kelembapan Koridor": f"{curr_hum}%", "Biaya Proteksi Material": f"${DESICCANT_COST_BARGE_USD:,.0f} USD (Sealed Desiccant)" if ("Sensitif" in cargo_type and curr_hum > HUMIDITY_THRESHOLD_DESICCANT_PCT) else "$0 USD", "Rekomendasi": "🟢 Paling Hemat Karbon & Biaya"},
+            {"Moda Pengiriman": "Trucking (Darat)", "Waktu Transit": f"{int(np.ceil(dist_km / TRUCK_SPEED_KM_PER_DAY)) + TRUCK_LOADING_BUFFER_DAYS} Hari", "Emisi Scope 3": f"{truck_emiss:,.2f} tCO2e", "Kelembapan Koridor": f"{curr_hum}%", "Biaya Proteksi Material": f"${DESICCANT_COST_TRUCK_USD:,.0f} USD (Desiccant Standard)" if ("Sensitif" in cargo_type and curr_hum > HUMIDITY_THRESHOLD_DESICCANT_PCT) else "$0 USD", "Rekomendasi": "🟡 Keseimbangan Waktu Pasokan"},
             {"Moda Pengiriman": "Air Freight (Udara)", "Waktu Transit": "1 Hari", "Emisi Scope 3": f"{air_emiss:,.2f} tCO2e", "Kelembapan Koridor": "Terkontrol (Kabin)", "Biaya Proteksi Material": "$0 USD", "Rekomendasi": "🔴 Khusus Emergency Sparepart"}
         ])
 
@@ -1283,7 +1733,7 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
         elif "Air" in mode_choice:
             st.error(f"**Peringatan Emisi**: Air Freight memicu emisi **{est_cargo_emiss:,.2f} tCO2e** (40x lipat Marine Barge). Gunakan moda ini hanya untuk kebutuhan material darurat pertambangan.")
 
-        st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+
         if st.button("Kunci Rekomendasi Logistik Koridor", key="btn_lock_logistics", use_container_width=True, type="primary"):
             st.session_state['locked_logistics'] = {
                 'route_id': selected_route_id,
@@ -1299,6 +1749,55 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
                 'timestamp': datetime.now().strftime("%d-%m-%Y %H:%M")
             }
             st.success("Rekomendasi logistik koridor berhasil dikunci! Diteruskan ke Tab Laporan Direksi.")
+
+    st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
+
+    with st.expander("🔎 Lihat Parameter & Asumsi Perhitungan (Assumption Registry)"):
+        st.markdown("""
+        Setiap parameter numerik yang digunakan dalam perhitungan matriks di atas didokumentasikan di sini
+        beserta **sumber referensi**, **tingkat keyakinan**, dan **satuan**. Hal ini memastikan
+        transparansi penuh bagi Direksi dan auditor.
+        """)
+
+        registry_df = pd.DataFrame(ASSUMPTION_REGISTRY)
+        display_df = registry_df[['parameter', 'value', 'unit', 'source', 'confidence', 'category']].copy()
+        display_df.columns = ['Parameter', 'Nilai', 'Satuan', 'Sumber / Referensi', 'Confidence', 'Kategori']
+
+        # Category filter
+        categories = sorted(display_df['Kategori'].unique().tolist())
+        selected_cats = st.multiselect(
+            "Filter berdasarkan kategori:",
+            options=categories,
+            default=categories,
+            key="assumption_cat_filter"
+        )
+        filtered_df = display_df[display_df['Kategori'].isin(selected_cats)]
+
+        # Confidence summary badges
+        high_cnt = len(filtered_df[filtered_df['Confidence'] == 'High'])
+        med_cnt = len(filtered_df[filtered_df['Confidence'] == 'Medium'])
+        low_cnt = len(filtered_df[filtered_df['Confidence'] == 'Low'])
+
+        st.markdown(f"""
+            <div style="display: flex; gap: 10px; margin-bottom: 14px; align-items: center; font-size: 0.88rem; font-weight: 600;">
+                <span style="background-color: rgba(39,174,96,0.15); color: #27AE60; padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(39,174,96,0.3);">🟢 {high_cnt} High</span>
+                <span style="background-color: rgba(242,201,76,0.15); color: #F2C94C; padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(242,201,76,0.3);">🟡 {med_cnt} Medium</span>
+                <span style="background-color: rgba(235,87,87,0.15); color: #FF4D4D; padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(255,77,77,0.3);">🔴 {low_cnt} Low</span>
+            </div>
+        """, unsafe_allow_html=True)
+
+        st.dataframe(
+            filtered_df,
+            column_config={
+                "Parameter": st.column_config.TextColumn("Parameter", width="medium"),
+                "Nilai": st.column_config.NumberColumn("Nilai", format="%.4g"),
+                "Satuan": st.column_config.TextColumn("Satuan", width="small"),
+                "Sumber / Referensi": st.column_config.TextColumn("Sumber / Referensi", width="large"),
+                "Confidence": st.column_config.TextColumn("Confidence", width="small"),
+                "Kategori": st.column_config.TextColumn("Kategori", width="small"),
+            },
+            use_container_width=True, hide_index=True
+        )
 
     st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
 
@@ -1424,47 +1923,101 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
         st.success("Skenario dekarbonisasi tambang berhasil dikunci! Diteruskan ke Tab Laporan Direksi.")
 
     # -------------------------------------------------------------------------
-    # FITUR 3: JURNAL AUDIT RISIKO OPERASIONAL (7 HARI TERAKHIR - EVENT DRIVEN)
+    # FITUR 3: JURNAL AUDIT RISIKO OPERASIONAL & WEATHER INTELLIGENCE RECONSTRUCTION
     # -------------------------------------------------------------------------
     st.markdown("---")
-    st.markdown("### 3. Jurnal audit risiko operasional (7 hari terakhir)")
-    st.caption("Catatan otomatis insiden cuaca buruk, kelembapan tinggi, dan tindakan mitigasi K3 & QA-QC di rute pengiriman Petrosea.")
+    st.markdown("### 3. Jurnal Audit Risiko Operasional & Weather Intelligence")
+    st.caption("Event-Trigger Engine menyaring 840 observasi cuaca per jam dari Open-Meteo di 5 koridor pengiriman, mengabaikan kondisi normal, lalu merekonstruksi pola yang memenuhi parameter risiko menjadi event operasional yang dapat ditinjau oleh K3.")
 
-    now = datetime.now()
-    log_data = pd.DataFrame([
-        {"Tanggal Log": (now - timedelta(days=1, hours=4)).strftime("%d-%m-%Y %H:%M"), "Kode Rute": "RTE-003", "Tujuan": "Sorong", "Pemicu Risiko": "Gelombang Laut 2.8m & Badai", "Tindakan Mitigasi Otomatis": "Tunda Marine Barge 12 Jam", "Status K3 & QA-QC": "Verified (K3 Approved)"},
-        {"Tanggal Log": (now - timedelta(days=3, hours=8)).strftime("%d-%m-%Y %H:%M"), "Kode Rute": "RTE-001", "Tujuan": "Kutai Barat", "Pemicu Risiko": "Hujan Deras & Jalan Licin", "Tindakan Mitigasi Otomatis": "Batas Kecepatan Truk 40 km/j", "Status K3 & QA-QC": "Verified (Speed Limit)"},
-        {"Tanggal Log": (now - timedelta(days=5, hours=2)).strftime("%d-%m-%Y %H:%M"), "Kode Rute": "RTE-004", "Tujuan": "Sorowako", "Pemicu Risiko": "Kelembapan Ekstrem 92%", "Tindakan Mitigasi Otomatis": "Proteksi Sealed Desiccant Container", "Status K3 & QA-QC": "Verified (QA-QC Approved)"}
-    ])
+    horizon_col1, horizon_col2 = st.columns([6, 4])
+    with horizon_col1:
+        horizon_mode = st.radio(
+            "Pilih Horizon Temporal Telemetri:",
+            options=["Audit Historis (7 Hari Terakhir)", "Forecast Risiko Operasional (7 Hari Ke Depan)"],
+            horizontal=True,
+            key="horizon_mode_selector"
+        )
 
-    st.dataframe(
-        log_data,
-        column_config={
-            "Tanggal Log": st.column_config.TextColumn("Waktu Kejadian", width="medium"),
-            "Kode Rute": st.column_config.TextColumn("Rute", width="small"),
-            "Tujuan": "Lokasi Situs",
-            "Pemicu Risiko": "Pemicu Anomali Cuaca",
-            "Tindakan Mitigasi Otomatis": "Tindakan Pencegahan Otomatis",
-            "Status K3 & QA-QC": "Status Pemeriksaan"
-        },
-        use_container_width=True, hide_index=True
-    )
+    mode_key = "historical" if "Historis" in horizon_mode else "forecast"
+    all_events_list = []
 
+    for idx, row in df_routes.iterrows():
+        r_id = row['Route_ID']
+        dest = row['Destination']
+        lat = row['Lat_Dest']
+        lon = row['Lon_Dest']
+        
+        df_h = fetch_hourly_telemetry(lat, lon, mode=mode_key)
+        if not df_h.empty:
+            df_ev = reconstruct_event_journal(df_h, r_id, dest)
+            if not df_ev.empty:
+                all_events_list.append(df_ev)
+
+    if all_events_list:
+        combined_events = pd.concat(all_events_list, ignore_index=True)
+    else:
+        combined_events = pd.DataFrame(columns=[
+            "Rentang Waktu (Telemetri)", "Rute / Situs", "Kategori Event Risiko",
+            "Tingkat Keparahan", "Indikator Telemetri", "Tindakan Mitigasi K3"
+        ])
+
+    total_obs = 168 * len(df_routes)
+    total_events = len(combined_events)
+    critical_cnt = len(combined_events[combined_events['Tingkat Keparahan'].str.contains('Critical', case=False)]) if not combined_events.empty else 0
+    warning_cnt = len(combined_events[combined_events['Tingkat Keparahan'].str.contains('Warning', case=False)]) if not combined_events.empty else 0
+    advisory_cnt = len(combined_events[combined_events['Tingkat Keparahan'].str.contains('Advisory', case=False)]) if not combined_events.empty else 0
+
+    # Executive Telemetry Filtering Summary Container (Clean UI/UX)
+    st.markdown(f"""
+        <div style="background-color: rgba(13, 27, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px; padding: 18px 22px; margin-top: 12px; margin-bottom: 20px;">
+            <div style="font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; color: #8E9BAE; font-weight: 600; margin-bottom: 4px;">Hasil Penapisan Telemetri Operasional</div>
+            <div style="font-size: 1.2rem; font-weight: 700; color: #FFFFFF; margin-bottom: 8px;">{total_obs} observasi ➔ {total_events} event yang perlu diperhatikan</div>
+            <div style="font-size: 0.92rem; color: #C5D1E0; margin-bottom: 12px; line-height: 1.5;">Sistem secara otomatis menyaring kondisi normal dan mengompresi observasi yang relevan menjadi <b>{total_events} Event Risiko Tersaring dari {total_obs} Observasi</b>:</div>
+            <div style="display: flex; gap: 12px; align-items: center; font-size: 0.9rem; font-weight: 600; margin-bottom: 10px;">
+                <span style="background-color: rgba(235, 87, 87, 0.15); color: #FF4D4D; padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(255,77,77,0.3);">🔴 {critical_cnt} Critical</span>
+                <span style="background-color: rgba(242, 201, 76, 0.15); color: #F2C94C; padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(242,201,76,0.3);">🟡 {warning_cnt} Warning</span>
+                <span style="background-color: rgba(39, 174, 96, 0.15); color: #27AE60; padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(39,174,96,0.3);">🟢 {advisory_cnt} Advisory</span>
+            </div>
+            <div style="font-size: 0.82rem; color: #7B8B9E; font-style: italic;">*Tanpa perlu menelusuri ratusan timestamp secara manual.*</div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    if not combined_events.empty:
+        st.dataframe(
+            combined_events,
+            column_config={
+                "Rentang Waktu (Telemetri)": st.column_config.TextColumn("Rentang Waktu Event Window", width="medium"),
+                "Rute / Situs": st.column_config.TextColumn("Koridor Situs", width="small"),
+                "Kategori Event Risiko": st.column_config.TextColumn("Klasifikasi Event", width="medium"),
+                "Tingkat Keparahan": st.column_config.TextColumn("Severity Level", width="small"),
+                "Indikator Telemetri": "Indikator Telemetri Open-Meteo",
+                "Tindakan Mitigasi K3": "Rekomendasi Respons Mitigasi K3"
+            },
+            use_container_width=True, hide_index=True
+        )
+    else:
+        st.success("Seluruh 840 titik observasi telemetri dalam batas aman normal (No Operational Risk Events Detected).")
+
+    # Clean CSV Export Formatting
+    csv_export_df = combined_events.rename(columns={
+        "Rentang Waktu (Telemetri)": "Rentang_Waktu_Telemetri",
+        "Rute / Situs": "Kode_Rute_dan_Situs",
+        "Kategori Event Risiko": "Kategori_Event_Risiko",
+        "Tingkat Keparahan": "Tingkat_Keparahan",
+        "Indikator Telemetri": "Indikator_Telemetri",
+        "Tindakan Mitigasi K3": "Tindakan_Mitigasi_K3"
+    })
+
+    st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
     st.download_button(
-        label="Unduh Log Risiko 7 Hari (CSV)",
-        data=log_data.to_csv(index=False).encode('utf-8'),
-        file_name="petrosea_operational_risk_log_7days.csv",
+        label="Unduh Rekonstruksi Log Risiko Operasional (CSV)",
+        data=csv_export_df.to_csv(index=False).encode('utf-8'),
+        file_name=f"petrosea_operational_risk_event_journal_{mode_key}.csv",
         mime="text/csv"
     )
 
-    # -------------------------------------------------------------------------
-    # CONTEXTUAL BRIDGE CTA TO TAB 3 (NARRATIVE MOMENTUM)
-    # -------------------------------------------------------------------------
-    st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
-    st.info(
-        "Skenario kebijakan & log risiko ini telah disiapkan untuk paparan direksi. "
-        "Lihat rangkuman resmi & unduh berkas audit di tab **Laporan Direksi** →"
-    )
+    st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True)
+
 
 
 /===========================================================================
@@ -1476,13 +2029,11 @@ import pandas as pd
 
 def render_tab3_executive(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame, df_routes: pd.DataFrame, selected_year: int, scope3_tot: float, curr_data: pd.Series):
     """
-    Tampilkan ringkasan naratif untuk jajaran direksi dan sediakan file data audit.
-    
-    Fungsi ini merangkum temuan emisi dan risiko pemasok menjadi 3 langkah narasi (Diagnosis, Risiko, Rekomendasi).
-    Juga menyediakan akses langsung ke tabel data mentah dan tombol unduh CSV untuk kebutuhan audit eksternal.
+    Renders Tab 3: Board Executive Briefing Statement & Verified Audit Trail Data.
+    Designed for Board of Directors decision-makers and external ESG auditors.
     """
-    st.subheader("Rangkuman untuk direksi & data audit")
-    st.caption("Ringkasan hasil analisis emisi, pemetaan risiko pemasok, dan unduh data audit PT Petrosea Tbk.")
+    st.subheader("Rangkuman Eksekutif Direksi & Transparansi Data Audit")
+    st.caption("Ringkasan eksekutif untuk pengambil keputusan (Board of Directors) yang mengombinasikan proyeksi dekarbonisasi, rekomendasi logistik koridor, serta berkas verifikasi audit data terstruktur.")
     st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
@@ -1500,18 +2051,35 @@ def render_tab3_executive(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame
     local_spend_pct = (df_suppliers[df_suppliers['Location_Type'] == 'Local']['Spend_USD'].sum() / df_suppliers['Spend_USD'].sum() * 100) if df_suppliers['Spend_USD'].sum() > 0 else 0
 
     with col_e1:
-        st.metric(label="Total emisi Scope 1 & 2", value=f"{total_ops_emissions:,.2f} tCO2e", help="Emisi dari penggunaan bahan bakar solar alat berat dan listrik operasional.")
+        st.metric(
+            label="Total Emisi Operasional (Scope 1 & 2)",
+            value=f"{total_ops_emissions:,.2f} tCO2e",
+            help="Jumlah emisi langsung dari solar alat berat tambang dan konsumsi listrik operasional situs."
+        )
     with col_e2:
-        st.metric(label="Intensitas emisi per pendapatan", value=f"{carbon_intensity:.2f} tCO2e/$M", help="Rasio emisi langsung terhadap total pendapatan korporasi.")
+        st.metric(
+            label="Intensitas Karbon Korporat",
+            value=f"{carbon_intensity:.2f} tCO2e/$1M",
+            help="Rasio emisi langsung terhadap total pendapatan korporasi PT Petrosea Tbk."
+        )
     with col_e3:
-        st.metric(label="Pemasok berisiko tinggi (ESG < 75)", value=f"{high_risk_count} Pemasok", delta="Perlu Audit" if high_risk_count > 0 else "Aman", delta_color="inverse")
+        st.metric(
+            label="Profil Risiko Pemasok (ESG < 75)",
+            value=f"{high_risk_count} Pemasok",
+            delta="Perlu Audit" if high_risk_count > 0 else "Kepatuhan Optimal",
+            delta_color="inverse"
+        )
     with col_e4:
-        st.metric(label="Persentase belanja dari vendor lokal", value=f"{local_spend_pct:.1f}%", delta="Target: 40%")
+        st.metric(
+            label="Realisasi Belanja Pemasok Lokal",
+            value=f"{local_spend_pct:.1f}%",
+            delta="Target Korporat: 40.0%"
+        )
 
     st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
-    # 2. BOARD EXECUTIVE BRIEFING (DYNAMIC LOCKED SCENARIO INTEGRATION)
+    # 2. BOARD EXECUTIVE BRIEFING STATEMENT (DYNAMIC DUAL-SCENARIO INTEGRATION)
     # -------------------------------------------------------------------------
     non_iso_vendors = len(df_suppliers[df_suppliers['ISO14001_Certified'] == 'No'])
     non_tkdn_vendors = len(df_suppliers[df_suppliers['TKDN_Compliant'] == 'No'])
@@ -1519,10 +2087,10 @@ def render_tab3_executive(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame
     locked_logistics = st.session_state.get('locked_logistics', None)
     locked_decarb = st.session_state.get('locked_decarb', None)
 
-    # 3A. LOGISTICS SCENARIO TEXT
+    # LOGISTICS SCENARIO TEXT
     if locked_logistics:
         desiccant_cost = locked_logistics.get('desiccant_cost', 0)
-        desiccant_str = f" dengan Proteksi Sealed Desiccant Container <b>${desiccant_cost:,.0f} USD</b>" if desiccant_cost > 0 else ""
+        desiccant_str = f" dengan Proteksi Sealed Desiccant Container (<b>${desiccant_cost:,.0f} USD</b>)" if desiccant_cost > 0 else ""
         mode_str = locked_logistics.get('mode_choice', 'Marine Barge (Laut)')
         origin_str = locked_logistics.get('origin', 'Balikpapan')
         dest_str = locked_logistics.get('destination', 'Sorong')
@@ -1531,65 +2099,69 @@ def render_tab3_executive(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame
         emiss_val = locked_logistics.get('est_cargo_emiss', 1.87)
         cargo_str = locked_logistics.get('cargo_type', 'Kargo Sensitif Kelembapan')
         
-        logistics_text = (
-            f"<b>3A. Rekomendasi Logistik Koridor</b> <span style='color: #00A86B; font-size: 0.8rem;'>[Terkunci {locked_logistics['timestamp']}]</span>:<br>"
-            f"• <b>Koridor Pengiriman</b>: <b>{origin_str} ➔ {dest_str} ({dist_val:,.0f} km)</b><br>"
-            f"• <b>Moda Utama</b>: <b>{mode_str}</b> (Transit: <b>{lead_val} Hari</b>, Estimasi Emisi: <b>{emiss_val:,.2f} tCO2e</b>)<br>"
-            f"• <b>Proteksi Material Presisi</b>: {cargo_str}{desiccant_str}"
+        logistics_html = (
+            f"<b>3. Rekomendasi Logistik Koridor</b> <span style='color: #00A86B; font-size: 0.8rem; font-weight: 600;'>[Terkunci {locked_logistics['timestamp']}]</span>:<br>"
+            f"• <b>Koridor Utama</b>: <b>{origin_str} ➔ {dest_str} ({dist_val:,.0f} km)</b><br>"
+            f"• <b>Moda Terpilih</b>: <b>{mode_str}</b> (Waktu Transit: <b>{lead_val} Hari</b>, Estimasi Emisi: <b>{emiss_val:,.2f} tCO2e</b>)<br>"
+            f"• <b>Spesifikasi Kargo & Proteksi</b>: {cargo_str}{desiccant_str}"
         )
     else:
-        logistics_text = (
-            "<b>3A. Rekomendasi Logistik Koridor</b> <span style='color: #007AFF; font-size: 0.8rem;'>[Baseline Standar]</span>:<br>"
-            "Gunakan Moda Marine Barge untuk koridor antar-pulau jangka panjang dan pasang kontainer desiccant pada material presisi."
+        logistics_html = (
+            "<b>3. Rekomendasi Logistik Koridor</b> <span style='color: #007AFF; font-size: 0.8rem; font-weight: 600;'>[Baseline Standar]</span>:<br>"
+            "Gunakan Moda Marine Barge untuk koridor antar-pulau jangka panjang dan pasang kontainer desiccant pada material presisi sensitif kelembapan."
         )
 
-    # 3B. DECARBONIZATION SCENARIO TEXT
+    # DECARBONIZATION SCENARIO TEXT
     if locked_decarb:
         sim = locked_decarb['sim_res']
-        decarb_text = (
-            f"<b>3B. Proyeksi Dekarbonisasi Tambang</b> <span style='color: #00A86B; font-size: 0.8rem;'>[Terkunci {locked_decarb['timestamp']}]</span>:<br>"
-            f"• <b>Kebijakan Disetujui</b>: Biofuel B100 <b>{locked_decarb['biofuel_val']:.0f}%</b>, Local Sourcing <b>+{locked_decarb['local_proc_val']:.0f}%</b>, Marine Barge <b>{locked_decarb['modal_shift_val']:.0f}%</b>, EV Retrofit <b>{locked_decarb['ev_val']:.0f}%</b><br>"
-            f"• <b>Potensi Reduksi Emisi</b>: Memangkas <b>{sim['total_abatement']:,.2f} tCO2e/tahun ({sim['pct_reduction']:.1f}% penurunan)</b> dengan efisiensi biaya <b>${sim['cost_savings_usd']:,.2f} USD</b><br>"
-            f"• <b>Dampak Lingkungan Nyata</b>: Setara <b>{locked_decarb['trees_count']:,} pohon tropis</b>, <b>{locked_decarb['trucks_count']:,} truk retired</b>, atau <b>{locked_decarb['homes_count']:,} rumah teraliri listrik bersih</b>."
+        decarb_html = (
+            f"<b>4. Proyeksi Optimalisasi Dekarbonisasi Tambang</b> <span style='color: #00A86B; font-size: 0.8rem; font-weight: 600;'>[Terkunci {locked_decarb['timestamp']}]</span>:<br>"
+            f"• <b>Kombinasi Kebijakan Disetujui</b>: Substitusi Biofuel B100 <b>{locked_decarb['biofuel_val']:.0f}%</b>, Local Sourcing <b>+{locked_decarb['local_proc_val']:.0f}%</b>, Shift Marine Barge <b>{locked_decarb['modal_shift_val']:.0f}%</b>, Retrofit EV <b>{locked_decarb['ev_val']:.0f}%</b><br>"
+            f"• <b>Proyeksi Reduksi Emisi & Biaya</b>: Memangkas emisi sebesar <b>{sim['total_abatement']:,.2f} tCO2e/tahun ({sim['pct_reduction']:.1f}% penurunan)</b> dengan estimasi efisiensi penghematan biaya <b>${sim['cost_savings_usd']:,.2f} USD</b><br>"
+            f"• <b>Dampak Lingkungan Nyata</b>: Ekuivalen dengan <b>{locked_decarb['trees_count']:,} pohon tropis ditanam</b>, <b>{locked_decarb['trucks_count']:,} truk diesel retired</b>, atau <b>{locked_decarb['homes_count']:,} rumah teraliri listrik bersih</b>."
         )
     else:
-        decarb_text = (
-            "<b>3B. Proyeksi Dekarbonisasi Tambang</b> <span style='color: #007AFF; font-size: 0.8rem;'>[Baseline Standar]</span>:<br>"
-            "Jalankan simulasi di tab Simulator Rute lalu klik 'Kunci Skenario Dekarbonisasi' untuk mengunci target kebijakan khusus."
+        decarb_html = (
+            "<b>4. Proyeksi Optimalisasi Dekarbonisasi Tambang</b> <span style='color: #007AFF; font-size: 0.8rem; font-weight: 600;'>[Baseline Standar]</span>:<br>"
+            "Jalankan simulasi preskriptif di tab Simulator Rute lalu klik 'Kunci Skenario Dekarbonisasi' untuk menetapkan target kebijakan resmi."
         )
 
     st.markdown(f"""
         <div class="petrosea-callout">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <h4 style="margin: 0;">Board of Directors Executive Briefing Statement ({selected_year})</h4>
-                <span style='background-color: rgba(0,168,107,0.15); color: #00A86B; padding: 4px 10px; border-radius: 4px; font-size: 0.85rem; font-weight: 600;'>Dual-Scenario Intelligence Mode</span>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;">
+                <h4 style="margin: 0; font-size: 1.1rem; color: #FFFFFF;">Board of Directors Executive Briefing Statement ({selected_year})</h4>
+                <span style='background-color: rgba(0,168,107,0.15); color: #00A86B; padding: 4px 12px; border-radius: 4px; font-size: 0.85rem; font-weight: 600;'>Dual-Scenario Intelligence Locked</span>
             </div>
-            <p><b>1. Diagnosis Emisi:</b> Total emisi operasional (Scope 1 & 2) berada di level <b>{total_ops_emissions:,.2f} tCO2e</b> dengan intensitas <b>{carbon_intensity:.2f} tCO2e/$1M pendapatan</b>. Porsi pengadaan lokal saat ini sebesar <b>{local_spend_pct:.1f}%</b>.</p>
-            <p><b>2. Risiko Pemasok:</b> Ditemukan <b>{high_risk_count} pemasok berisiko tinggi</b> (skor ESG di bawah 75), <b>{non_iso_vendors} pemasok</b> belum bersertifikat ISO 14001, dan <b>{non_tkdn_vendors} pemasok</b> belum memenuhi standar TKDN minimal.</p>
-            <p>{logistics_text}</p>
-            <p style="margin-top: 10px;">{decarb_text}</p>
+            <p style="margin-bottom: 10px;"><b>1. Diagnosis Emisi:</b> Total emisi operasional langsung (Scope 1 & 2) tercatat di level <b>{total_ops_emissions:,.2f} tCO2e</b> dengan intensitas emisi <b>{carbon_intensity:.2f} tCO2e/$1M pendapatan</b>. Realisasi pengadaan barang dari vendor lokal berada pada tingkat <b>{local_spend_pct:.1f}%</b>.</p>
+            <p style="margin-bottom: 10px;"><b>2. Audit Kepatuhan & Risiko Pemasok:</b> Ditemukan <b>{high_risk_count} pemasok berisiko tinggi</b> (skor ESG di bawah 75), <b>{non_iso_vendors} pemasok</b> belum bersertifikasi ISO 14001, dan <b>{non_tkdn_vendors} pemasok</b> belum memenuhi standar kelayakan TKDN korporat.</p>
+            <p style="margin-bottom: 10px;">{logistics_html}</p>
+            <p style="margin-top: 10px; margin-bottom: 0;">{decarb_html}</p>
         </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
+
+    st.markdown("<div style='margin-bottom: 25px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
     # 3. VERIFIED DATA PROVENANCE & AUDIT TRAIL EXPANDERS
     # -------------------------------------------------------------------------
-    with st.expander("Sumber Data & Metode Ekstraksi"):
+    st.markdown("### Verifikasi Data Audit & Log Sistem")
+    st.caption("Berkas audit mentah, metodologi ekstraksi PDF Laporan Keberlanjutan Petrosea 2025, dan catatan validasi sistem.")
+
+    with st.expander("📁 Metodologi Ekstraksi & Transparansi Data PDF (GRI Disclosures)"):
         st.markdown("""
-        * **Sumber Data**: Laporan Keberlanjutan PT Petrosea Tbk 2025.
-        * **Skrip Ekstraksi**: `scripts/extract_sr_pdf.py` mengekstrak teks mentah PDF menggunakan PyMuPDF & Regex.
-        * **Validasi Tipe Data**: `modules/data_loader.py` memeriksa kesesuaian tipe data baris demi baris lewat Pydantic.
-        * **Cakupan Data**: Emisi Scope 1, Scope 2, Scope 3 (Logistik Hulu, Perjalanan Dinas, Pembelian Barang), serta data 10 vendor utama dan rute pengiriman.
+        * **Sumber Data Utama**: Laporan Keberlanjutan PT Petrosea Tbk 2025 (Official Sustainability Report).
+        * **Skrip Ingest & Pipeline**: Berkas `scripts/extract_sr_pdf.py` mengekstrak data kuantitatif PDF menggunakan PyMuPDF & Regex parser.
+        * **Validasi Tipe Data**: Modul `modules/data_loader.py` melakukan verifikasi tipe data dan null-check baris demi baris menggunakan skema Pydantic (`modules/schemas.py`).
+        * **Cakupan Pengungkapan**: Memencakup emisi Scope 1, Scope 2, Scope 3 (Logistik Hulu, Perjalanan Dinas, Pembelian Barang), profil 10 pemasok utama, serta parameter rute logistik koridor.
         """)
 
-    with st.expander("Tabel Data Mentah Emisi Histori (Audit Trail)"):
+    with st.expander("📊 Tabel Audit Mentah Emisi Historis & Pemasok (CSV Export)"):
         st.dataframe(df_emissions, use_container_width=True, hide_index=True)
         col_d1, col_d2 = st.columns(2)
         with col_d1:
             st.download_button(
-                label="Unduh Data Emisi Histori (CSV)",
+                label="Unduh Data Emisi Historis (CSV)",
                 data=df_emissions.to_csv(index=False).encode('utf-8'),
                 file_name=f"petrosea_emissions_audit_{selected_year}.csv",
                 mime="text/csv",
@@ -1597,24 +2169,24 @@ def render_tab3_executive(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame
             )
         with col_d2:
             st.download_button(
-                label="Unduh Data Pemasok (CSV)",
+                label="Unduh Data Pemasok Korporat (CSV)",
                 data=df_suppliers.to_csv(index=False).encode('utf-8'),
                 file_name="petrosea_suppliers_audit.csv",
                 mime="text/csv",
                 use_container_width=True
             )
 
-    with st.expander("Log Validasi System & Audit Ekstraksi PDF"):
+    with st.expander("📋 System Validation Log & Audit Trail (Pydantic Logs)"):
         val_log_content = ""
         try:
             with open("logs/data_validation.log", "r", encoding="utf-8") as f:
                 val_log_content = f.read()
         except Exception:
-            val_log_content = "Log tidak ditemukan."
+            val_log_content = "Log validasi tidak ditemukan."
 
         st.code(val_log_content, language="log")
         st.download_button(
-            label="Unduh Log Validasi Pydantic (LOG)",
+            label="Unduh Berkas Log Validasi Pydantic (LOG)",
             data=val_log_content.encode('utf-8'),
             file_name="petrosea_data_validation.log",
             mime="text/plain",
@@ -1632,6 +2204,17 @@ import re
 import pandas as pd
 import logging
 from typing import Dict, Any
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from modules.constants import (
+    SCOPE3_2023_24_CAT4_ALLOCATION,
+    SCOPE3_2023_24_CAT6_ALLOCATION,
+    SCOPE3_2023_24_CAT1_ALLOCATION,
+    SCOPE3_2025_CAT4_ALLOCATION,
+    SCOPE3_2025_CAT6_ALLOCATION,
+    SCOPE3_2025_CAT1_ALLOCATION
+)
 
 # Configure Logging for Data Ingestion Audit Trail
 os.makedirs("logs", exist_ok=True)
@@ -1643,7 +2226,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 PDF_PATH = "data/PTRO_Sustainability_Report-2025-.pdf"
-OUTPUT_CSV = "data/emissions_extracted.csv"
+OUTPUT_CSV = "data/emissions.csv"
 
 def parse_indonesian_number(num_str: str) -> float:
     """
@@ -1693,9 +2276,14 @@ def extract_metrics_from_pdf(pdf_path: str) -> pd.DataFrame:
     # 3. PARSE PAGE 126: TKDN & LOCAL CONTENT
     page_tkdn_text = doc[125].get_text("text")  # Page 126 (0-indexed 125)
     tkdn_match = re.search(r"Lokal\s*\n\s*Local\s*\n\s*(\d+)\s*\n\s*(\d+)\s*\n\s*(\d+)", page_tkdn_text)
-    tkdn_2025 = float(tkdn_match.group(1)) if tkdn_match else 96.0
-    tkdn_2024 = float(tkdn_match.group(2)) if tkdn_match else 96.0
-    tkdn_2023 = float(tkdn_match.group(3)) if tkdn_match else 98.0
+    
+    if not tkdn_match:
+        logger.error("Regex pattern matching failed for TKDN on Page 126.")
+        raise ValueError("Failed to extract TKDN metrics from PDF Page 126. Manual review required.")
+        
+    tkdn_2025 = float(tkdn_match.group(1))
+    tkdn_2024 = float(tkdn_match.group(2))
+    tkdn_2023 = float(tkdn_match.group(3))
 
     # 4. CONSTRUCT STRUCTURED EXTRACTED DATAFRAME (ZERO HARDCODED DICTIONARIES)
     data = [
@@ -1704,9 +2292,9 @@ def extract_metrics_from_pdf(pdf_path: str) -> pd.DataFrame:
             "Revenue_MUSD": rev_2023,
             "Scope1_tCO2e": s1_2023,
             "Scope2_tCO2e": s2_2023,
-            "Scope3_Cat4_UpstreamLogistics_tCO2e": s3_2023 * 0.70,
-            "Scope3_Cat6_BusinessTravel_tCO2e": s3_2023 * 0.10,
-            "Scope3_Cat1_PurchasedGoods_tCO2e": s3_2023 * 0.20,
+            "Scope3_Cat4_UpstreamLogistics_tCO2e": s3_2023 * SCOPE3_2023_24_CAT4_ALLOCATION,
+            "Scope3_Cat6_BusinessTravel_tCO2e": s3_2023 * SCOPE3_2023_24_CAT6_ALLOCATION,
+            "Scope3_Cat1_PurchasedGoods_tCO2e": s3_2023 * SCOPE3_2023_24_CAT1_ALLOCATION,
             "TKDN_Percentage": tkdn_2023
         },
         {
@@ -1714,9 +2302,9 @@ def extract_metrics_from_pdf(pdf_path: str) -> pd.DataFrame:
             "Revenue_MUSD": rev_2024,
             "Scope1_tCO2e": s1_2024,
             "Scope2_tCO2e": s2_2024,
-            "Scope3_Cat4_UpstreamLogistics_tCO2e": s3_2024 * 0.70,
-            "Scope3_Cat6_BusinessTravel_tCO2e": s3_2024 * 0.10,
-            "Scope3_Cat1_PurchasedGoods_tCO2e": s3_2024 * 0.20,
+            "Scope3_Cat4_UpstreamLogistics_tCO2e": s3_2024 * SCOPE3_2023_24_CAT4_ALLOCATION,
+            "Scope3_Cat6_BusinessTravel_tCO2e": s3_2024 * SCOPE3_2023_24_CAT6_ALLOCATION,
+            "Scope3_Cat1_PurchasedGoods_tCO2e": s3_2024 * SCOPE3_2023_24_CAT1_ALLOCATION,
             "TKDN_Percentage": tkdn_2024
         },
         {
@@ -1724,9 +2312,9 @@ def extract_metrics_from_pdf(pdf_path: str) -> pd.DataFrame:
             "Revenue_MUSD": rev_2025,
             "Scope1_tCO2e": s1_2025,
             "Scope2_tCO2e": s2_2025,
-            "Scope3_Cat4_UpstreamLogistics_tCO2e": s3_2025 * 0.186,  # Refined Scope 3 breakdown from PDF disclosures
-            "Scope3_Cat6_BusinessTravel_tCO2e": s3_2025 * 0.0105,
-            "Scope3_Cat1_PurchasedGoods_tCO2e": s3_2025 * 0.8035,
+            "Scope3_Cat4_UpstreamLogistics_tCO2e": s3_2025 * SCOPE3_2025_CAT4_ALLOCATION,
+            "Scope3_Cat6_BusinessTravel_tCO2e": s3_2025 * SCOPE3_2025_CAT6_ALLOCATION,
+            "Scope3_Cat1_PurchasedGoods_tCO2e": s3_2025 * SCOPE3_2025_CAT1_ALLOCATION,
             "TKDN_Percentage": tkdn_2025
         }
     ]
@@ -1744,4 +2332,40 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Extraction failed: {e}")
 
+
+/===========================================================================
+// FILE: data/emissions.csv
+===========================================================================/
+
+Year,Revenue_MUSD,Scope1_tCO2e,Scope2_tCO2e,Scope3_Cat4_UpstreamLogistics_tCO2e,Scope3_Cat6_BusinessTravel_tCO2e,Scope3_Cat1_PurchasedGoods_tCO2e,B40_Fuel_Liters,Electricity_MWh,TKDN_Percentage
+2023,577.62,340779.18,2558.58,412.52,195.00,18500.00,6187216,3122.50,98.0
+2024,690.81,302046.94,4393.70,764.62,210.00,21000.00,147593825,5631.64,96.0
+2025,886.46,330890.59,7455.45,6192.54,350.00,26800.00,169310996,7240.41,96.0
+
+/===========================================================================
+// FILE: data/suppliers.csv
+===========================================================================/
+
+Supplier_ID,Supplier_Name,Category,Location_Type,Spend_USD,TKDN_Compliant,ESG_Score,Carbon_Intensity_kgCO2_per_USD,ISO14001_Certified,Delivery_LeadTime_Days
+SUP-001,PT Hexindo Adiperkasa Tbk,Heavy Equipment,Non-Local National,185000000,Yes,88,0.42,Yes,14
+SUP-002,PT United Tractors Tbk,Heavy Equipment,Non-Local National,210000000,Yes,92,0.38,Yes,10
+SUP-003,PT Pertamina Patra Niaga,Fuel & Lubricants,Non-Local National,14500000,Yes,81,0.85,Yes,5
+SUP-004,KUBE Srikandi Lengkari,Domestic & CSR Waste,Local,45000,Yes,95,0.05,No,2
+SUP-005,PT United Coal Logistics,Logistics & Support,Local,1250000,Yes,74,0.65,Yes,4
+SUP-006,PT Asian Bulk Logistics,Offshore Shipping,Non-Local National,32870000,Yes,78,0.72,Yes,7
+SUP-007,Global Tyre Supplies Ltd,Tyres & Parts,International,13036556,No,62,0.95,No,30
+SUP-008,CV Kariangau Mandiri,Civil & Construction,Local,850000,Yes,89,0.22,Yes,3
+SUP-009,PT Scan-Bilt Indonesia,Chemical EPC,Non-Local National,15400000,Yes,85,0.48,Yes,12
+SUP-010,PT Hafar Daya Fleet,Offshore Marine,Local,22400000,Yes,83,0.58,Yes,6
+
+/===========================================================================
+// FILE: data/rute_logistik.csv
+===========================================================================/
+
+Route_ID,Origin,Destination,Distance_km,Transport_Mode,Avg_Monthly_Trips,Avg_Payload_Tons,Lat_Dest,Lon_Dest,Weather_Sensitivity
+RT-001,PSF Balikpapan,CEP Kutai Barat (Tambang),345,Truck Biofuel B40,45,35,-0.2234,115.6812,High
+RT-002,PSF Balikpapan,Kideco Paser,180,Truck Biofuel B40,60,40,-1.8452,115.9123,Medium
+RT-003,Pelabuhan Kariangau,Freepot Papua Site,1850,Barge Offshore,12,1200,-4.5321,136.8834,High
+RT-004,PSF Balikpapan,Vale Indonesia Sorowako,820,Barge & Truck,8,500,-2.5283,121.3521,Medium
+RT-005,Sorong POSB,West Papua Offshore,320,Supply Vessel,15,800,-0.8721,131.2543,High
 

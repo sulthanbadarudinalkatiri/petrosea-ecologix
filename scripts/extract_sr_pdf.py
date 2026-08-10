@@ -4,6 +4,17 @@ import re
 import pandas as pd
 import logging
 from typing import Dict, Any
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from modules.constants import (
+    SCOPE3_2023_24_CAT4_ALLOCATION,
+    SCOPE3_2023_24_CAT6_ALLOCATION,
+    SCOPE3_2023_24_CAT1_ALLOCATION,
+    SCOPE3_2025_CAT4_ALLOCATION,
+    SCOPE3_2025_CAT6_ALLOCATION,
+    SCOPE3_2025_CAT1_ALLOCATION
+)
 
 # Configure Logging for Data Ingestion Audit Trail
 os.makedirs("logs", exist_ok=True)
@@ -15,7 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 PDF_PATH = "data/PTRO_Sustainability_Report-2025-.pdf"
-OUTPUT_CSV = "data/emissions_extracted.csv"
+OUTPUT_CSV = "data/emissions.csv"
 
 def parse_indonesian_number(num_str: str) -> float:
     """
@@ -65,9 +76,14 @@ def extract_metrics_from_pdf(pdf_path: str) -> pd.DataFrame:
     # 3. PARSE PAGE 126: TKDN & LOCAL CONTENT
     page_tkdn_text = doc[125].get_text("text")  # Page 126 (0-indexed 125)
     tkdn_match = re.search(r"Lokal\s*\n\s*Local\s*\n\s*(\d+)\s*\n\s*(\d+)\s*\n\s*(\d+)", page_tkdn_text)
-    tkdn_2025 = float(tkdn_match.group(1)) if tkdn_match else 96.0
-    tkdn_2024 = float(tkdn_match.group(2)) if tkdn_match else 96.0
-    tkdn_2023 = float(tkdn_match.group(3)) if tkdn_match else 98.0
+    
+    if not tkdn_match:
+        logger.error("Regex pattern matching failed for TKDN on Page 126.")
+        raise ValueError("Failed to extract TKDN metrics from PDF Page 126. Manual review required.")
+        
+    tkdn_2025 = float(tkdn_match.group(1))
+    tkdn_2024 = float(tkdn_match.group(2))
+    tkdn_2023 = float(tkdn_match.group(3))
 
     # 4. CONSTRUCT STRUCTURED EXTRACTED DATAFRAME (ZERO HARDCODED DICTIONARIES)
     data = [
@@ -76,9 +92,9 @@ def extract_metrics_from_pdf(pdf_path: str) -> pd.DataFrame:
             "Revenue_MUSD": rev_2023,
             "Scope1_tCO2e": s1_2023,
             "Scope2_tCO2e": s2_2023,
-            "Scope3_Cat4_UpstreamLogistics_tCO2e": s3_2023 * 0.70,
-            "Scope3_Cat6_BusinessTravel_tCO2e": s3_2023 * 0.10,
-            "Scope3_Cat1_PurchasedGoods_tCO2e": s3_2023 * 0.20,
+            "Scope3_Cat4_UpstreamLogistics_tCO2e": s3_2023 * SCOPE3_2023_24_CAT4_ALLOCATION,
+            "Scope3_Cat6_BusinessTravel_tCO2e": s3_2023 * SCOPE3_2023_24_CAT6_ALLOCATION,
+            "Scope3_Cat1_PurchasedGoods_tCO2e": s3_2023 * SCOPE3_2023_24_CAT1_ALLOCATION,
             "TKDN_Percentage": tkdn_2023
         },
         {
@@ -86,9 +102,9 @@ def extract_metrics_from_pdf(pdf_path: str) -> pd.DataFrame:
             "Revenue_MUSD": rev_2024,
             "Scope1_tCO2e": s1_2024,
             "Scope2_tCO2e": s2_2024,
-            "Scope3_Cat4_UpstreamLogistics_tCO2e": s3_2024 * 0.70,
-            "Scope3_Cat6_BusinessTravel_tCO2e": s3_2024 * 0.10,
-            "Scope3_Cat1_PurchasedGoods_tCO2e": s3_2024 * 0.20,
+            "Scope3_Cat4_UpstreamLogistics_tCO2e": s3_2024 * SCOPE3_2023_24_CAT4_ALLOCATION,
+            "Scope3_Cat6_BusinessTravel_tCO2e": s3_2024 * SCOPE3_2023_24_CAT6_ALLOCATION,
+            "Scope3_Cat1_PurchasedGoods_tCO2e": s3_2024 * SCOPE3_2023_24_CAT1_ALLOCATION,
             "TKDN_Percentage": tkdn_2024
         },
         {
@@ -96,9 +112,9 @@ def extract_metrics_from_pdf(pdf_path: str) -> pd.DataFrame:
             "Revenue_MUSD": rev_2025,
             "Scope1_tCO2e": s1_2025,
             "Scope2_tCO2e": s2_2025,
-            "Scope3_Cat4_UpstreamLogistics_tCO2e": s3_2025 * 0.186,  # Refined Scope 3 breakdown from PDF disclosures
-            "Scope3_Cat6_BusinessTravel_tCO2e": s3_2025 * 0.0105,
-            "Scope3_Cat1_PurchasedGoods_tCO2e": s3_2025 * 0.8035,
+            "Scope3_Cat4_UpstreamLogistics_tCO2e": s3_2025 * SCOPE3_2025_CAT4_ALLOCATION,
+            "Scope3_Cat6_BusinessTravel_tCO2e": s3_2025 * SCOPE3_2025_CAT6_ALLOCATION,
+            "Scope3_Cat1_PurchasedGoods_tCO2e": s3_2025 * SCOPE3_2025_CAT1_ALLOCATION,
             "TKDN_Percentage": tkdn_2025
         }
     ]
