@@ -303,10 +303,10 @@ def render_tab1(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame, selected
     )
 
     st.download_button(
-        label="Unduh Scorecard Pemasok (CSV)",
-        data=df_suppliers.to_csv(index=False).encode('utf-8'),
-        file_name="petrosea_suppliers_scorecard.csv",
-        mime="text/csv"
+        label="📥 Download Data Vendor (.csv)",
+        data=df_suppliers_scored.to_csv(index=False).encode('utf-8'),
+        file_name='petrosea_vendor_esg_scoring.csv',
+        mime='text/csv'
     )
 
     # -------------------------------------------------------------------------

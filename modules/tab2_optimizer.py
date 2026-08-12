@@ -799,10 +799,32 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
                 st.session_state.local_proc_val = opt_res["local_proc_val"]
                 st.session_state.modal_shift_val = opt_res["modal_shift_val"]
                 st.session_state.ev_val = opt_res["ev_val"]
-                st.toast("Optimalisasi Target 30% Net-Zero Petrosea Berhasil!", icon="🏆")
+                
+                # Check real physical limits hit
+                is_maxed_out = (
+                    opt_res["biofuel_val"] >= MAX_BIOFUEL_MIX - 1.0 and
+                    opt_res["ev_val"] >= MAX_EV_RETROFIT - 1.0 and
+                    opt_res["local_proc_val"] >= MAX_LOCAL_PROCUREMENT - 1.0 and
+                    opt_res["modal_shift_val"] >= MAX_BARGE_MODAL_SHIFT - 1.0
+                )
+                
+                # We need to manually calculate the real percentage based on discrete slider values
+                real_check = calculate_decarbonization(
+                    base_s1, base_s3, 
+                    opt_res["biofuel_val"], opt_res["local_proc_val"], 
+                    opt_res["ev_val"], opt_res["modal_shift_val"], 
+                    st.session_state.carbon_price_val, dist_km, payload
+                )
+                real_pct = real_check['pct_reduction']
+                
+                if is_maxed_out and real_pct < NET_ZERO_TARGET_PERCENTAGE:
+                    st.toast(f"Kapasitas fisik armada sudah maksimal. Reduksi terbaik: {real_pct:.1f}% (Target {NET_ZERO_TARGET_PERCENTAGE}% tidak tercapai)", icon="⚠️")
+                else:
+                    st.toast(f"Solver selesai. Kapasitas reduksi terbaik: {real_pct:.1f}% (Target: {NET_ZERO_TARGET_PERCENTAGE}%)", icon="✅")
+                    
                 st.rerun()
             else:
-                st.error("⚠️ Solver Failed: Tidak dapat menemukan kombinasi optimal yang memenuhi target 30% dengan konstrain saat ini.")
+                st.error(f"⚠️ Solver Failed: Tidak dapat menemukan kombinasi optimal yang memenuhi target {NET_ZERO_TARGET_PERCENTAGE}% dengan konstrain saat ini.")
     with col_p4:
         if st.button("🔄 Reset", use_container_width=True):
             st.session_state.biofuel_val, st.session_state.local_proc_val, st.session_state.ev_val, st.session_state.modal_shift_val, st.session_state.carbon_price_val = 0.0, 0.0, 0.0, 0.0, DEFAULT_CARBON_PRICE_USD

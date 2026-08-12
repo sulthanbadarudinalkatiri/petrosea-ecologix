@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 import html
-from modules.constants import DEFAULT_CARBON_PRICE_USD
+from modules.constants import DEFAULT_CARBON_PRICE_USD, ESG_HIGH_RISK_THRESHOLD
+from modules.schemas import calculate_dynamic_esg_score
 
 def render_tab3_executive(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame, df_routes: pd.DataFrame, selected_year: int, scope3_tot: float, curr_data: pd.Series):
     # Ngambil state dari Tab 2
@@ -83,7 +84,23 @@ def render_tab3_executive(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame
     # -------------------------------------------------------------------------
     # 3. KEPUTUSAN OPERASIONAL & KESIAPAN VENDOR
     # -------------------------------------------------------------------------
-    high_risk_count = len(df_suppliers[df_suppliers['ESG_Score'] < 75])
+    # Calculate dynamic ESG score exactly like Tab 1
+    df_suppliers_scored = df_suppliers.copy()
+    if not df_suppliers_scored.empty:
+        df_suppliers_scored['Dynamic_ESG_Score'] = df_suppliers_scored.apply(
+            lambda row: calculate_dynamic_esg_score(
+                base_esg=float(row['ESG_Score']),
+                iso_certified=str(row['ISO14001_Certified']),
+                tkdn_compliant=str(row['TKDN_Compliant']),
+                carbon_intensity=float(row['Carbon_Intensity_kgCO2_per_USD']),
+                lead_time_days=int(row['Delivery_LeadTime_Days'])
+            ), axis=1
+        )
+    else:
+        df_suppliers_scored['Dynamic_ESG_Score'] = pd.Series(dtype=float)
+
+    bad_vendors_df = df_suppliers_scored[df_suppliers_scored['Dynamic_ESG_Score'] < ESG_HIGH_RISK_THRESHOLD]
+    high_risk_count = len(bad_vendors_df)
     
     st.markdown("### Rekomendasi Operasional")
     
@@ -92,23 +109,29 @@ def render_tab3_executive(df_emissions: pd.DataFrame, df_suppliers: pd.DataFrame
         st.markdown("**1. Rute Logistik & Cuaca**")
         if locked_logistics:
             ll = locked_logistics
-            desiccant_text = f"Proteksi desiccant diwajibkan (Biaya: ${ll['desiccant_cost']:,.0f})." if ll['desiccant_cost'] > 0 else "Cuaca aman, proteksi tambahan tidak diperlukan."
-            st.markdown(
-                f"- **Rute Terpilih:** {ll['origin']} ➔ {ll['destination']} via {ll['mode_choice']}.\n"
-                f"- **Waktu Tempuh:** {ll['lead_days']} hari perjalanan.\n"
-                f"- **Mitigasi Lapangan:** {desiccant_text}"
-            )
+            desiccant_text = f"Proteksi Desiccant diwajibkan (Biaya: ${ll['desiccant_cost']:,.0f}) karena kelembapan koridor tinggi ({ll['curr_hum']}%)." if ll['desiccant_cost'] > 0 else "Cuaca terpantau aman, proteksi tambahan tidak diperlukan."
+            st.markdown(f"Rute utama diputuskan via **{ll['mode_choice']}** dari **{ll['origin']}** ke **{ll['destination']}** karena waktu tempuh ({ll['lead_days']} hari) dan profil emisi yang paling seimbang. {desiccant_text} Keputusan ini langsung menekan proyeksi emisi kargo menjadi **{ll['est_cargo_emiss']:,.2f} tCO2e** per trip.")
         else:
-            st.markdown("- *Belum ada rute logistik yang dikunci.*")
+            st.markdown("*Belum ada rute logistik yang dikunci dari simulasi operasional.*")
 
     with col_op2:
         st.markdown("**2. Kesiapan Rantai Pasok (Vendor)**")
+        
+        local_proc_val = st.session_state.get('local_proc_val', 0.0)
+        
         if high_risk_count > 0:
-            st.markdown(f"- **Risiko Vendor:** Ditemukan **{high_risk_count} vendor** dengan skor ESG di bawah batas aman (< 75).")
-            st.markdown("- **Tindakan:** Wajib melakukan audit ISO/TKDN sebelum perpanjangan kontrak tahun depan untuk mencegah denda kepatuhan.")
+            bad_names = ", ".join([f"**{x}**" for x in bad_vendors_df['Supplier_Name'].head(3).tolist()])
+            if high_risk_count > 3:
+                bad_names += f" dan {high_risk_count - 3} lainnya"
+                
+            if local_proc_val > 0:
+                st.markdown(f"Skenario dekarbonisasi mewajibkan belanja lokal naik **{local_proc_val:.1f}%**. Namun, vendor berisiko tinggi seperti {bad_names} menghambat target ini karena skor ESG dinamis mereka di bawah {ESG_HIGH_RISK_THRESHOLD}. **Wajib diganti atau diaudit sebelum akhir tahun.**")
+            else:
+                st.markdown(f"Eksekusi rantai pasok terancam oleh {high_risk_count} vendor berisiko tinggi ({bad_names}) yang memiliki skor ESG di bawah batas aman (< {ESG_HIGH_RISK_THRESHOLD}). **Tindakan:** Wajib melakukan audit ISO/TKDN segera.")
         else:
-            st.markdown("- Seluruh vendor berada di zona aman kepatuhan ESG.")
-            st.markdown("- Lanjutkan skema prioritas Belanja Lokal (*Local Procurement*).")
+            st.markdown("Seluruh vendor berada di zona aman kepatuhan ESG. Eksekusi logistik dapat dijalankan tanpa risiko penalti kepatuhan.")
+            if local_proc_val > 0:
+                st.markdown(f"Skenario prioritas Belanja Lokal (*Local Procurement*) dapat ditingkatkan dengan aman sesuai target **{local_proc_val:.1f}%**.")
 
     st.divider()
 
