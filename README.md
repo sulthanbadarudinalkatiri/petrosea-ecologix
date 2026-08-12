@@ -52,21 +52,7 @@ Seluruh koefisien emisi dan biaya marginal (MAC) didokumentasikan dalam satu fil
 
 ## Alur Kerja Data & Arsitektur Sistem
 
-### Struktur Direktori
-```text
-petrosea-ecologix/
-├── app.py                     # Entry point aplikasi & konfigurasi Streamlit UI
-├── modules/
-│   ├── constants.py           # Assumption Registry (Harga Karbon, Koefisien Emisi MAC)
-│   ├── schemas.py             # Skema Pydantic untuk validasi tipe data yang ketat
-│   ├── data_loader.py         # Memuat & membersihkan data dari CSV
-│   ├── tab1_emissions.py      # Logika visualisasi Plotly untuk Profil Emisi
-│   ├── tab2_optimizer.py      # Engine simulasi cuaca (paralel) & solver linier (SciPy)
-│   └── tab3_executive.py      # Laporan ringkasan finansial & pajak karbon
-├── data/                      # Direktori dataset CSV lokal
-├── assets/                    # Gambar statis, logo SVG
-└── scripts/                   # Skrip utilitas internal
-```
+<img width="1362" height="768" alt="workflow" src="https://github.com/user-attachments/assets/9d8a220b-85c4-4915-a3ca-c6e2103e3222" />
 
 ### Lifecycle Data (Data Flow)
 1. **Ingestion & Validation**: Saat aplikasi dimuat, `data_loader.py` membaca dataset statis dan memaksakan validasi tipe menggunakan **Pydantic** (`schemas.py`). Ini memastikan *fail-safe* (jika data rusak, aplikasi menolak *render*).
