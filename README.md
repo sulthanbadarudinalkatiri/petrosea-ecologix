@@ -50,6 +50,32 @@ Seluruh koefisien emisi dan biaya marginal (MAC) didokumentasikan dalam satu fil
     *   Poin-poin rekomendasi rute dan kesiapan vendor.
     *   Expander tersembunyi berisi file CSV mentah dan log validasi Pydantic.
 
+## Alur Kerja Data & Arsitektur Sistem
+
+### Struktur Direktori
+```text
+petrosea-ecologix/
+├── app.py                     # Entry point aplikasi & konfigurasi Streamlit UI
+├── modules/
+│   ├── constants.py           # Assumption Registry (Harga Karbon, Koefisien Emisi MAC)
+│   ├── schemas.py             # Skema Pydantic untuk validasi tipe data yang ketat
+│   ├── data_loader.py         # Memuat & membersihkan data dari CSV
+│   ├── tab1_emissions.py      # Logika visualisasi Plotly untuk Profil Emisi
+│   ├── tab2_optimizer.py      # Engine simulasi cuaca (paralel) & solver linier (SciPy)
+│   └── tab3_executive.py      # Laporan ringkasan finansial & pajak karbon
+├── data/                      # Direktori dataset CSV lokal
+├── assets/                    # Gambar statis, logo SVG
+└── scripts/                   # Skrip utilitas internal
+```
+
+### Lifecycle Data (Data Flow)
+1. **Ingestion & Validation**: Saat aplikasi dimuat, `data_loader.py` membaca dataset statis dan memaksakan validasi tipe menggunakan **Pydantic** (`schemas.py`). Ini memastikan *fail-safe* (jika data rusak, aplikasi menolak *render*).
+2. **Real-time Enrichment**: Di Modul Tab 2, sistem melakukan *fetch* paralel ke **Open-Meteo API** (via `ThreadPoolExecutor` dengan 10 *workers* dan *timeout* 5 detik) untuk memperkaya data rute statis dengan parameter cuaca & AQI aktual.
+3. **Event Engine & Tolerance Window**: Data cuaca dievaluasi. Jika curah hujan > 20 mm atau AQI > 150, sistem menyalakan *severity warning* untuk rute tersebut menggunakan pola *Progressive Disclosure*.
+4. **Optimization (SciPy Linprog)**: User menggeser *slider* target pengurangan emisi. Sistem memanggil *solver* **HiGHS** dari SciPy. Fungsi tujuan (Z) adalah meminimalkan biaya tambahan (*Marginal Abatement Cost*) sambil memenuhi batasan (target % reduksi & batas maksimal per intervensi).
+5. **State Persistance**: Hasil optimasi dikunci dan disimpan dalam memori (`st.session_state['locked_decarb']`).
+6. **Executive Briefing**: Tab 3 membaca sesi tersebut dan menghitung **Carbon Tax Exposure** secara dinamis (Emisi Sisa × $2.00 Tarif Pajak Karbon Dasar) untuk memberikan ringkasan yang *decision-ready*.
+
 ## Stack Teknologi
 *   **Framework**: Python 3.10+, Streamlit 1.42.0
 *   **Optimization**: SciPy (`scipy.optimize.linprog`)
