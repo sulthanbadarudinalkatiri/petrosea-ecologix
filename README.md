@@ -49,6 +49,14 @@ Seluruh koefisien emisi dan biaya marginal (MAC) didokumentasikan dalam satu fil
     *   Kartu perbandingan pajak karbon (Baseline vs Pasca-Mitigasi).
     *   Poin-poin rekomendasi rute dan kesiapan vendor.
     *   Expander tersembunyi berisi file CSV mentah dan log validasi Pydantic.
+## Filosofi Desain & Batasan Data
+Dashboard ini dirancang mengikuti pembagian standar GHG Protocol berdasarkan ketersediaan data publik:
+
+Modul Diagnosis (Tab 1): Berfokus pada Scope 3 Category 1 (Purchased Goods). Data diekstrak dari laporan keuangan/vendor publik. Di sini, penilaian risiko dilakukan berdasarkan kualitas vendor (ESG/ISO), bukan berdasarkan jalur pengiriman.
+
+Modul Simulator (Tab 2): Berfokus pada Scope 3 Category 4 (Upstream Transportation). Karena laporan publik tidak pernah mencantumkan pemetaan rute spesifik per vendor (alasan keamanan operasional), simulator logistik ini berdiri sebagai alat bantu evaluasi moda transportasi umum.
+
+Mengapa tidak digabung? Menghubungkan "Vendor A" secara langsung ke "Rute B" memerlukan data internal (mapping vendor-rute) yang bersifat proprietary. Oleh karena itu, aplikasi ini berfungsi sebagai Decision Support System terpisah yang memfasilitasi diskusi lintas departemen (Procurement vs Logistics), bukan sistem end-to-end otomatis.
 
 ## Alur Kerja Data & Arsitektur Sistem
 
