@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 400" width="100%" height="100%">
+  <!-- Logo Mark and Text Group -->
+  <g transform="translate(100, 45)">
+    <!-- Teal "E" Shape -->
+    <path d="M 40 40
+             L 190 40
+             L 169 82
+             L 75 82
+             L 75 109
+             L 155.5 109
+             L 134.5 151
+             L 75 151
+             L 75 178
+             L 121 178
+             L 100 220
+             L 40 220 Z" 
+          fill="#2A6756" />
+
+    <!-- Orange Arrow/L Shape -->
+    <path d="M 116 220
+             L 250 220
+             L 250 178
+             L 182 178
+             L 239 64
+             L 264 76.5
+             L 241 15
+             L 178 33.5
+             L 203 46 Z" 
+          fill="#ED6B2A" />
+
+    <!-- EcoLogix Text -->
+    <text x="149" y="298" 
+          font-family="'Montserrat', 'Proxima Nova', 'Segoe UI', Arial, sans-serif" 
+          font-weight="700" 
+          font-size="56" 
+          fill="currentColor" 
+          text-anchor="middle" 
+          letter-spacing="-1">EcoLogix</text>
+  </g>
+</svg>

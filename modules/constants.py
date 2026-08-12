@@ -222,11 +222,33 @@ ASSUMPTION_REGISTRY = [
         "note": "Above this threshold, desiccant protection is recommended"
     },
     {
-        "parameter": "Default Payload (Fallback)",
-        "variable": "DEFAULT_PAYLOAD_TONS",
-        "value": 50.0,
+        "parameter": "Default Payload (Truck)",
+        "variable": "DEFAULT_PAYLOAD_TRUCK",
+        "value": 35.0,
         "unit": "metric tons",
-        "source": "Fallback default (used only when route data unavailable)",
+        "source": "Fallback default for heavy road goods",
+        "evidence_level": "Medium",
+        "category": "Operational",
+        "type": "MODEL_PARAMETER",
+        "note": "Replaced by actual Avg_Payload_Tons from route CSV when available"
+    },
+    {
+        "parameter": "Default Payload (Marine Barge)",
+        "variable": "DEFAULT_PAYLOAD_BARGE",
+        "value": 3000.0,
+        "unit": "metric tons",
+        "source": "Fallback default for coastal barge",
+        "evidence_level": "Medium",
+        "category": "Operational",
+        "type": "MODEL_PARAMETER",
+        "note": "Replaced by actual Avg_Payload_Tons from route CSV when available"
+    },
+    {
+        "parameter": "Default Payload (Vessel)",
+        "variable": "DEFAULT_PAYLOAD_VESSEL",
+        "value": 1000.0,
+        "unit": "metric tons",
+        "source": "Fallback default for supply vessel",
         "evidence_level": "Medium",
         "category": "Operational",
         "type": "MODEL_PARAMETER",
@@ -247,10 +269,10 @@ ASSUMPTION_REGISTRY = [
     {
         "parameter": "Default Carbon Price",
         "variable": "DEFAULT_CARBON_PRICE_USD",
-        "value": 25.0,
+        "value": 2.0,
         "unit": "USD/tCO2e",
-        "source": "Prototype estimate (above Indonesia Law No. 7/2021 floor of ~$1.90)",
-        "evidence_level": "Low",
+        "source": "Indonesia Law No. 7/2021 floor of ~$1.90",
+        "evidence_level": "High",
         "category": "Governance",
         "type": "ASSUMPTION",
         "note": "Adjustable via UI slider. Indonesia carbon tax floor: IDR 30,000/tCO2e"

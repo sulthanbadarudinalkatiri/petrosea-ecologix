@@ -34,7 +34,9 @@ from modules.constants import (
     MC_LOCAL_PROCUREMENT_USD_PER_TCO2E,
     MC_BARGE_MODAL_SHIFT_USD_PER_TCO2E,
     MC_EV_RETROFIT_USD_PER_TCO2E,
-    DEFAULT_PAYLOAD_TONS,
+    DEFAULT_PAYLOAD_TRUCK,
+    DEFAULT_PAYLOAD_BARGE,
+    DEFAULT_PAYLOAD_VESSEL,
     BARGE_SPEED_KM_PER_DAY,
     TRUCK_SPEED_KM_PER_DAY,
     BARGE_LOADING_BUFFER_DAYS,
@@ -74,11 +76,11 @@ def fetch_weather_data(lat: float, lon: float) -> Dict[str, Any]:
 
         return {
             "status": "OK",
-            "temp": curr.get("temperature", 28.5),
-            "kec_angin": curr.get("windspeed", 12.0),
-            "arah_angin": f"{curr.get('winddirection', 180)}°",
+            "temp": float(curr.get("temperature", 28.5)),
+            "kec_angin": float(curr.get("windspeed", 12.0)),
+            "arah_angin": f"{float(curr.get('winddirection', 180))}°",
             "cuaca": cuaca_text,
-            "kelembapan": curr_humidity,
+            "kelembapan": float(curr_humidity),
             "lokasi_lengkap": f"Koordinat {lat:.2f}, {lon:.2f}"
         }
     except Exception:
@@ -132,6 +134,8 @@ def fetch_hourly_telemetry(lat: float, lon: float, mode: str = "historical") -> 
         if mode == "historical" and not df.empty:
             df['time_dt'] = pd.to_datetime(df['time'])
             df = df[df['time_dt'] <= datetime.now()].copy()
+            # Enforce exactly 168 hours (7 days) retrospectively
+            df = df.tail(168)
             df.drop(columns=['time_dt'], inplace=True)
 
         return df
@@ -152,13 +156,21 @@ def reconstruct_event_journal(df_h: pd.DataFrame, route_id: str, dest: str) -> p
 
     for idx, row in df_h.iterrows():
         try:
-            t_dt = datetime.strptime(row['time'], '%Y-%m-%dT%H:%M')
-        except Exception:
+            # Gunakan pd.to_datetime untuk parser yang jauh lebih tangguh terhadap variasi format API
+            t_dt = pd.to_datetime(row['time']).to_pydatetime()
+            
+            # Safe casting: handles None, "", or malformed strings gracefully
+            wind_raw = row.get('wind')
+            w = float(wind_raw) if wind_raw not in (None, "") else 0.0
+            
+            precip_raw = row.get('precip')
+            p = float(precip_raw) if precip_raw not in (None, "") else 0.0
+            
+            hum_raw = row.get('hum')
+            h = float(hum_raw) if hum_raw not in (None, "") else 75.0
+            
+        except (ValueError, TypeError, Exception):
             continue
-
-        w = float(row.get('wind', 0.0))
-        p = float(row.get('precip', 0.0))
-        h = float(row.get('hum', 75.0))
 
         has_wind = w >= 25.0
         has_rain = p >= 1.0
@@ -176,21 +188,25 @@ def reconstruct_event_journal(df_h: pd.DataFrame, route_id: str, dest: str) -> p
             category = "COMPOUND RISK: High Wind & Heavy Rain"
             risk_desc = f"Angin Kencang ({w:.1f} km/j) + Hujan Deras ({p:.1f} mm/jam)"
             action = "Tunda Keberangkatan Marine Barge & Penambatan Armada"
+            rank = 4
         elif has_wind:
             severity = "🟡 Warning"
             category = "SUSTAINED HIGH WIND"
             risk_desc = f"Kecepatan Angin Kencang {w:.1f} km/j"
             action = "Pengawasan Stabilitas Tugboat & Evaluasi Operasi Laut"
+            rank = 3
         elif has_rain:
             severity = "🟡 Warning"
             category = "HEAVY PRECIPITATION"
             risk_desc = f"Curah Hujan Tinggi {p:.1f} mm/jam"
             action = "Pembatasan Kecepatan Truk 30 km/j & Evaluasi Drainage Situs"
+            rank = 2
         else:
             severity = "🟢 Advisory"
             category = "HIGH HUMIDITY ENVIRONMENT"
             risk_desc = f"Kelembapan Udara Ekstrem {h:.0f}%"
             action = "Proteksi Sealed Desiccant Container Wajib"
+            rank = 1
 
         if current_event is None:
             current_event = {
@@ -202,13 +218,24 @@ def reconstruct_event_journal(df_h: pd.DataFrame, route_id: str, dest: str) -> p
                 'severity': severity,
                 'risk_desc': risk_desc,
                 'action': action,
-                'hours_count': 1
+                'hours_count': 1,
+                'rank': rank
             }
         else:
             time_diff = (t_dt - current_event['end_dt']).total_seconds() / 3600.0
-            if time_diff == 1.0 and current_event['category'] == category and current_event['route_id'] == route_id:
+            
+            # Jendela Toleransi 2 Jam (Micro-Fluctuation Fix) & Eskalasi (Evolution Fix)
+            if time_diff <= 2.0 and current_event['route_id'] == route_id:
                 current_event['end_dt'] = t_dt
-                current_event['hours_count'] += 1
+                current_event['hours_count'] += int(time_diff)
+                
+                # Jika event yang baru lebih parah, eskalasi status keseluruhan window
+                if rank > current_event.get('rank', 0):
+                    current_event['category'] = category
+                    current_event['severity'] = severity
+                    current_event['risk_desc'] = risk_desc
+                    current_event['action'] = action
+                    current_event['rank'] = rank
             else:
                 events.append(current_event)
                 current_event = {
@@ -220,7 +247,8 @@ def reconstruct_event_journal(df_h: pd.DataFrame, route_id: str, dest: str) -> p
                     'severity': severity,
                     'risk_desc': risk_desc,
                     'action': action,
-                    'hours_count': 1
+                    'hours_count': 1,
+                    'rank': rank
                 }
 
     if current_event:
@@ -229,7 +257,10 @@ def reconstruct_event_journal(df_h: pd.DataFrame, route_id: str, dest: str) -> p
     formatted_rows = []
     for e in events:
         start_str = e['start_dt'].strftime('%d %b %H:%M')
-        end_str = e['end_dt'].strftime('%H:%M')
+        # Correctly add 1 hour to the end timestamp to represent the full duration block
+        actual_end_dt = e['end_dt'] + timedelta(hours=1)
+        end_str = actual_end_dt.strftime('%H:%M')
+        
         duration_str = f"{e['hours_count']} Jam" if e['hours_count'] > 1 else "1 Jam"
         window_str = f"{start_str} – {end_str} ({duration_str})"
 
@@ -254,7 +285,9 @@ def calculate_decarbonization(
     local_proc_increase: float,
     ev_retrofit_pct: float,
     modal_shift_barge: float,
-    carbon_price: float = DEFAULT_CARBON_PRICE_USD
+    carbon_price: float = DEFAULT_CARBON_PRICE_USD,
+    dist_km: float = 100.0,
+    payload: float = 50.0
 ) -> Dict[str, float]:
     reduction_s1_ev = base_s1 * (ev_retrofit_pct / 100.0) * EV_RETROFIT_ABATEMENT_FACTOR
     remaining_s1_diesel = max(0.0, base_s1 - reduction_s1_ev)
@@ -272,9 +305,11 @@ def calculate_decarbonization(
     pct_reduction = (total_abatement / (base_s1 + base_s3)) * 100.0 if (base_s1 + base_s3) > 0 else 0.0
 
     mc_biofuel = MC_BIOFUEL_USD_PER_TCO2E
-    mc_local = MC_LOCAL_PROCUREMENT_USD_PER_TCO2E
-    mc_barge = MC_BARGE_MODAL_SHIFT_USD_PER_TCO2E
     mc_ev = MC_EV_RETROFIT_USD_PER_TCO2E
+    # Dynamic MAC Scaling: Local procurement savings scale with distance.
+    mc_local = MC_LOCAL_PROCUREMENT_USD_PER_TCO2E * (dist_km / 350.0)
+    # Barge savings scale with distance and payload economy of scale.
+    mc_barge = MC_BARGE_MODAL_SHIFT_USD_PER_TCO2E * (dist_km / 120.0) * (payload / 500.0)
 
     cost_biofuel = reduction_s1_biofuel * (mc_biofuel - carbon_price)
     cost_local = reduction_s3_local * (mc_local - carbon_price)
@@ -293,7 +328,9 @@ def solve_scipy_optimal_decarbonization(
     base_s1: float,
     base_s3: float,
     target_pct: float = NET_ZERO_TARGET_PERCENTAGE,
-    carbon_price: float = DEFAULT_CARBON_PRICE_USD
+    carbon_price: float = DEFAULT_CARBON_PRICE_USD,
+    dist_km: float = 100.0,
+    payload: float = 50.0
 ) -> Dict[str, Any]:
     total_baseline = base_s1 + base_s3
     required_abatement = total_baseline * (target_pct / 100.0)
@@ -304,9 +341,10 @@ def solve_scipy_optimal_decarbonization(
     abate_ev_per_pct = base_s1 * 0.01 * EV_RETROFIT_ABATEMENT_FACTOR
 
     mc_biofuel = MC_BIOFUEL_USD_PER_TCO2E
-    mc_local = MC_LOCAL_PROCUREMENT_USD_PER_TCO2E
-    mc_barge = MC_BARGE_MODAL_SHIFT_USD_PER_TCO2E
     mc_ev = MC_EV_RETROFIT_USD_PER_TCO2E
+    # Dynamic MAC Scaling
+    mc_local = MC_LOCAL_PROCUREMENT_USD_PER_TCO2E * (dist_km / 350.0)
+    mc_barge = MC_BARGE_MODAL_SHIFT_USD_PER_TCO2E * (dist_km / 120.0) * (payload / 500.0)
 
     c = [
         abate_biofuel_per_pct * (mc_biofuel - carbon_price),
@@ -348,18 +386,18 @@ def solve_scipy_optimal_decarbonization(
 # -----------------------------------------------------------------------------
 def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
     """
-    Renders Tab 2: Simulator Rute & 3 Fitur Unggulan Operasional.
+    Renders Tab 2: Simulator Logistik & 3 Fitur Unggulan Operasional.
     Follows a strict 1 -> 2 -> 3 downward narrative flow.
     """
-    st.subheader("Simulator Rute")
-    st.caption("Prediksi iklim koridor, simulasi kebijakan dekarbonisasi preskriptif, dan jurnal audit risiko operasional.")
+    st.subheader("Simulator Logistik")
+    st.caption("Peta cuaca, log risiko pengiriman, dan kalkulator emisi.")
     st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
-    # FITUR 1: PREDIKSI CUACA & EARLY WARNING RISIKO K3
+    # FITUR 1: Kondisi Cuaca Koridor Pengiriman
     # -------------------------------------------------------------------------
-    st.markdown("### 1. Prediksi Cuaca & Early Warning Risiko K3")
-    st.caption("Melihat risiko sebelum menjadi gangguan. EcoLogix memantau prakiraan cuaca dan AQI pada koridor pengiriman untuk mengidentifikasi kondisi yang berpotensi memerlukan perhatian operasional dalam 7 hari ke depan.")
+    st.markdown("### 1. Kondisi Cuaca Koridor Pengiriman")
+    st.caption("Cek kondisi cuaca dan kualitas udara real-time di tiap koridor pengiriman buat antisipasi delay operasional.")
 
     weather_cache = {}
     aqi_cache = {}
@@ -375,10 +413,24 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         future_to_row = {executor.submit(_fetch_both, row): row for idx, row in df_routes.iterrows()}
-        for future in concurrent.futures.as_completed(future_to_row):
-            route_id, w_info, a_info = future.result()
-            weather_cache[route_id] = w_info
-            aqi_cache[route_id] = a_info
+        
+        try:
+            for future in concurrent.futures.as_completed(future_to_row, timeout=10.0):
+                try:
+                    route_id, w_info, a_info = future.result()
+                    weather_cache[route_id] = w_info
+                    aqi_cache[route_id] = a_info
+                except Exception as exc:
+                    row = future_to_row[future]
+                    weather_cache[row['Route_ID']] = {"status": "ERROR", "cuaca": "Error", "temp": 0, "kelembapan": 0}
+                    aqi_cache[row['Route_ID']] = {"status": "ERROR", "aqi": 0}
+        except concurrent.futures.TimeoutError:
+            st.warning("⚠️ Peringatan: API Cuaca eksternal mengalami timeout. Sebagian data cuaca rute menggunakan *fallback*.")
+            # Berikan nilai default untuk future yang belum selesai
+            for future, row in future_to_row.items():
+                if row['Route_ID'] not in weather_cache:
+                    weather_cache[row['Route_ID']] = {"status": "ERROR", "cuaca": "Timeout", "temp": 0, "kelembapan": 0}
+                    aqi_cache[row['Route_ID']] = {"status": "ERROR", "aqi": 0}
 
     for idx, row in df_routes.iterrows():
         w_info = weather_cache[row['Route_ID']]
@@ -409,7 +461,7 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
         })
 
     if bad_weather_sites:
-        st.error(f"⚠️ **Peringatan Cuaca Buruk di Koridor**: **{', '.join(bad_weather_sites)}**. Sesuai protokol keselamatan K3 Petrosea, pengiriman laut pada koridor ini ditunda sementara.")
+        st.error(f"⚠️ Cuaca buruk di **{', '.join(bad_weather_sites)}**. Pengiriman via laut di rute ini sebaiknya ditunda.")
     else:
         st.success("✅ **Status Koridor Pengiriman**: Seluruh rute dalam kondisi cuaca aman.")
 
@@ -461,11 +513,109 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
     st.markdown("<div style='margin-bottom: 20px;'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
-    # FITUR 2: OPTIMASI RUTE INTERMODAL & SIMULASI KEBIJAKAN KARBON (TENGAH)
+    # FITUR 2: JURNAL AUDIT RISIKO OPERASIONAL & WEATHER INTELLIGENCE RECONSTRUCTION
     # -------------------------------------------------------------------------
     st.markdown("---")
-    st.markdown("### 2. Optimasi Rute Intermodal & Simulasi Kebijakan Karbon")
-    st.caption("Analisis trade-off waktu transit vs emisi Scope 3, serta penentuan alokasi kebijakan.")
+    st.markdown("### 2. Radar K3: Deteksi Ancaman & Mitigasi Risiko Cuaca")
+    st.caption("Sistem memantau kondisi operasional secara real-time. Jika ditemukan pola yang berisiko, sistem akan segera memberi tahu tim K3 agar langkah antisipasi bisa langsung diambil.")
+
+    horizon_col1, horizon_col2 = st.columns([6, 4])
+    with horizon_col1:
+        time_horizon = st.radio(
+            "Pilih rentang waktu data:",
+            options=["7 Hari Terakhir", "Prakiraan 7 Hari Ke Depan"],
+            index=1,
+            horizontal=True,
+            key="horizon_mode_selector"
+        )
+
+    mode_key = "historical" if "Terakhir" in time_horizon else "forecast"
+    all_events_list = []
+    total_raw_obs = 0
+
+    for idx, row in df_routes.iterrows():
+        r_id = row['Route_ID']
+        dest = row['Destination']
+        lat = row['Lat_Dest']
+        lon = row['Lon_Dest']
+        
+        df_h = fetch_hourly_telemetry(lat, lon, mode=mode_key)
+        if not df_h.empty:
+            total_raw_obs += len(df_h)
+            df_ev = reconstruct_event_journal(df_h, r_id, dest)
+            if not df_ev.empty:
+                all_events_list.append(df_ev)
+
+    if all_events_list:
+        combined_events = pd.concat(all_events_list, ignore_index=True)
+    else:
+        combined_events = pd.DataFrame(columns=[
+            "Rentang Waktu (Telemetri)", "Rute / Situs", "Kategori Event Risiko",
+            "Tingkat Keparahan", "Indikator Telemetri", "Tindakan Mitigasi K3"
+        ])
+
+    total_obs = total_raw_obs
+    total_events = len(combined_events)
+    critical_cnt = len(combined_events[combined_events['Tingkat Keparahan'].str.contains('Critical', case=False)]) if not combined_events.empty else 0
+    warning_cnt = len(combined_events[combined_events['Tingkat Keparahan'].str.contains('Warning', case=False)]) if not combined_events.empty else 0
+    advisory_cnt = len(combined_events[combined_events['Tingkat Keparahan'].str.contains('Advisory', case=False)]) if not combined_events.empty else 0
+
+    # Executive Telemetry Filtering Summary Container (Clean UI/UX)
+    st.markdown(f"""
+        <div style="padding: 16px; background-color: var(--secondary-background-color); border: 1px solid var(--faded-text-color); border-radius: 8px; margin-bottom: 24px;">
+            <div style="font-size: 0.92rem; color: var(--text-color); opacity: 0.9; margin-bottom: 12px; line-height: 1.5;">Dari <b>{total_obs}</b> titik data, sistem menyaring yang keluar dari ambang batas aman:</div>
+            <div style="display: flex; gap: 12px; align-items: center; font-size: 0.9rem; font-weight: 600; margin-bottom: 10px;">
+                <span style="background-color: rgba(235, 87, 87, 0.15); color: #FF4D4D; padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(255,77,77,0.3);">🔴 {critical_cnt} Critical</span>
+                <span style="background-color: rgba(242, 201, 76, 0.15); color: #F2C94C; padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(242,201,76,0.3);">🟡 {warning_cnt} Warning</span>
+                <span style="background-color: rgba(39, 174, 96, 0.15); color: #27AE60; padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(39,174,96,0.3);">🟢 {advisory_cnt} Advisory</span>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    with st.expander("🔍 Lihat Rincian Jurnal Log Cuaca", expanded=False):
+        if not combined_events.empty:
+            st.dataframe(
+                combined_events,
+                column_config={
+                    "Rentang Waktu (Telemetri)": st.column_config.TextColumn("Rentang Waktu Event Window", width="medium"),
+                    "Rute / Situs": st.column_config.TextColumn("Koridor Situs", width="small"),
+                    "Kategori Event Risiko": st.column_config.TextColumn("Klasifikasi Event", width="medium"),
+                    "Tingkat Keparahan": st.column_config.TextColumn("Severity Level", width="small"),
+                    "Indikator Telemetri": "Indikator Telemetri Open-Meteo",
+                    "Tindakan Mitigasi K3": "Rekomendasi Respons Mitigasi K3"
+                },
+                use_container_width=True, hide_index=True
+            )
+        else:
+            st.success("Seluruh 840 titik observasi telemetri dalam batas aman normal (No Operational Risk Events Detected).")
+
+        # Clean CSV Export Formatting
+        csv_export_df = combined_events.rename(columns={
+            "Rentang Waktu (Telemetri)": "Rentang_Waktu_Telemetri",
+            "Rute / Situs": "Kode_Rute_dan_Situs",
+            "Kategori Event Risiko": "Kategori_Event_Risiko",
+            "Tingkat Keparahan": "Tingkat_Keparahan",
+            "Indikator Telemetri": "Indikator_Telemetri",
+            "Tindakan Mitigasi K3": "Tindakan_Mitigasi_K3"
+        })
+
+        st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
+        st.download_button(
+            label="Unduh Rekonstruksi Log Risiko Operasional (CSV)",
+            data=csv_export_df.to_csv(index=False).encode('utf-8'),
+            file_name=f"petrosea_operational_risk_event_journal_{mode_key}.csv",
+            mime="text/csv"
+        )
+
+        st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True)
+
+
+    # -------------------------------------------------------------------------
+    # FITUR 3: OPTIMASI RUTE INTERMODAL & SIMULASI KEBIJAKAN KARBON (TENGAH)
+    # -------------------------------------------------------------------------
+    st.markdown("---")
+    st.markdown("### 3. Simulasi Biaya & Emisi antar Moda Pengiriman")
+    st.caption("Hitung trade-off waktu tempuh, biaya logistik, dan dampak karbon sebelum armada bergerak.")
 
     # 2A. EVALUASI MODA PENGIRIMAN & PROTEKSI MATERIAL PRESISI EPC
     with st.expander("Evaluasi Moda Pengiriman & Proteksi Material Presisi EPC", expanded=True):
@@ -497,20 +647,22 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
                 key="mode_choice_radio"
             )
         with col_c2:
-            payload = r_sel_row['Avg_Payload_Tons'] if r_sel_row['Avg_Payload_Tons'] > 0 else DEFAULT_PAYLOAD_TONS
-
             if "Barge" in mode_choice:
                 lead_days = int(np.ceil(dist_km / BARGE_SPEED_KM_PER_DAY)) + BARGE_LOADING_BUFFER_DAYS
                 mode_emiss_factor = EMISSION_FACTOR_BARGE_KG_PER_TKM
-                desiccant_cost = DESICCANT_COST_BARGE_USD if ("Sensitif" in cargo_type and curr_hum > HUMIDITY_THRESHOLD_DESICCANT_PCT) else 0.0
+                payload = r_sel_row['Avg_Payload_Tons'] if r_sel_row['Avg_Payload_Tons'] > 0 else DEFAULT_PAYLOAD_BARGE
+                # Cost is dynamically calculated per payload volume instead of flat rate
+                desiccant_cost = DESICCANT_COST_BARGE_USD * (payload / 500.0) if ("Sensitif" in cargo_type and curr_hum > HUMIDITY_THRESHOLD_DESICCANT_PCT) else 0.0
             elif "Trucking" in mode_choice:
                 lead_days = int(np.ceil(dist_km / TRUCK_SPEED_KM_PER_DAY)) + TRUCK_LOADING_BUFFER_DAYS
                 mode_emiss_factor = EMISSION_FACTOR_TRUCK_KG_PER_TKM
-                desiccant_cost = DESICCANT_COST_TRUCK_USD if ("Sensitif" in cargo_type and curr_hum > HUMIDITY_THRESHOLD_DESICCANT_PCT) else 0.0
+                payload = r_sel_row['Avg_Payload_Tons'] if r_sel_row['Avg_Payload_Tons'] > 0 else DEFAULT_PAYLOAD_TRUCK
+                desiccant_cost = DESICCANT_COST_TRUCK_USD * (payload / 35.0) if ("Sensitif" in cargo_type and curr_hum > HUMIDITY_THRESHOLD_DESICCANT_PCT) else 0.0
             else:  # Air Freight
                 lead_days = 1
                 mode_emiss_factor = EMISSION_FACTOR_AIR_KG_PER_TKM
                 desiccant_cost = 0.0
+                payload = r_sel_row['Avg_Payload_Tons'] if r_sel_row['Avg_Payload_Tons'] > 0 else DEFAULT_PAYLOAD_VESSEL
 
             est_cargo_emiss = (dist_km * payload * mode_emiss_factor) / 1000.0
 
@@ -538,7 +690,7 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
         if "Sensitif" in cargo_type and curr_hum > 80 and "Barge" in mode_choice:
             st.warning(f"**Proteksi Material Presisi**: Kelembapan koridor {r_sel_row['Destination']} berada di level **{curr_hum}% (Tinggi)**. Pengiriman via Marine Barge membutuhkan **Sealed Desiccant Container (${desiccant_cost:,.0f} USD)** untuk mencegah korosi komponen presisi selama transit {lead_days} hari — namun menghemat biaya emisi signifikan dibanding Air Freight.")
         elif "Air" in mode_choice:
-            st.error(f"**Peringatan Emisi**: Air Freight memicu emisi **{est_cargo_emiss:,.2f} tCO2e** (40x lipat Marine Barge). Gunakan moda ini hanya untuk kebutuhan material darurat pertambangan.")
+            st.error(f"Emisi Air Freight (**{est_cargo_emiss:,.2f} tCO2e**) kira-kira 40x lipat dari Barge. Coba pakai opsi ini buat kondisi darurat aja.")
 
 
         if st.button("Kunci Rekomendasi Logistik Koridor", key="btn_lock_logistics", use_container_width=True, type="primary"):
@@ -639,7 +791,9 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
             st.rerun()
     with col_p3:
         if st.button("🏆 Target 30% (Net-Zero)", use_container_width=True, type="primary"):
-            opt_res = solve_scipy_optimal_decarbonization(base_s1, base_s3, NET_ZERO_TARGET_PERCENTAGE, st.session_state.carbon_price_val)
+            opt_res = solve_scipy_optimal_decarbonization(
+                base_s1, base_s3, NET_ZERO_TARGET_PERCENTAGE, st.session_state.carbon_price_val, dist_km, payload
+            )
             if opt_res["success"]:
                 st.session_state.biofuel_val = opt_res["biofuel_val"]
                 st.session_state.local_proc_val = opt_res["local_proc_val"]
@@ -661,7 +815,7 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
         st.markdown("""
             <div class="petrosea-callout">
                 <h4>Pilih Parameter Dekarbonisasi</h4>
-                <p>Geser slider di bawah untuk melihat dampak opsi kebijakan, atau klik <b>Auto Optimize 30%</b> untuk mencari kombinasi paling murah secara otomatis.</p>
+                <p>Atur persentase kebijakan di bawah, atau klik <b>Auto Optimize</b> biar sistem cari kombinasi termurah buat capai target 30%.</p>
             </div>
         """, unsafe_allow_html=True)
         biofuel_mix = st.slider("Substitusi Bahan Bakar B100 (%)", 0, 100, key="biofuel_val")
@@ -674,7 +828,9 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
         st.markdown("### Proyeksi Hasil & Penghematan Biaya")
         base_s1 = curr_data['Scope1_tCO2e']
         base_s3 = curr_data['Scope3_Cat4_UpstreamLogistics_tCO2e'] + curr_data['Scope3_Cat1_PurchasedGoods_tCO2e']
-        sim_res = calculate_decarbonization(base_s1, base_s3, biofuel_mix, local_proc_increase, ev_retrofit_pct, modal_shift_barge, carbon_price)
+        sim_res = calculate_decarbonization(
+            base_s1, base_s3, biofuel_mix, local_proc_increase, ev_retrofit_pct, modal_shift_barge, carbon_price, dist_km, payload
+        )
         
         col_m1, col_m2 = st.columns(2)
         with col_m1: 
@@ -739,102 +895,4 @@ def render_tab2_optimizer(df_routes: pd.DataFrame, curr_data: pd.Series):
             'timestamp': datetime.now().strftime("%d-%m-%Y %H:%M")
         }
         st.success("Skenario dekarbonisasi tambang berhasil dikunci! Diteruskan ke Tab Laporan Direksi.")
-
-    # -------------------------------------------------------------------------
-    # FITUR 3: JURNAL AUDIT RISIKO OPERASIONAL & WEATHER INTELLIGENCE RECONSTRUCTION
-    # -------------------------------------------------------------------------
-    st.markdown("---")
-    st.markdown("### 3. Jurnal Audit Risiko Operasional & Weather Intelligence")
-    st.caption("Event-Trigger Engine menyaring 840 observasi cuaca per jam dari Open-Meteo di 5 koridor pengiriman, mengabaikan kondisi normal, lalu merekonstruksi pola yang memenuhi parameter risiko menjadi event operasional yang dapat ditinjau oleh K3.")
-
-    horizon_col1, horizon_col2 = st.columns([6, 4])
-    with horizon_col1:
-        horizon_mode = st.radio(
-            "Pilih Horizon Temporal Telemetri:",
-            options=["Audit Historis (7 Hari Terakhir)", "Forecast Risiko Operasional (7 Hari Ke Depan)"],
-            horizontal=True,
-            key="horizon_mode_selector"
-        )
-
-    mode_key = "historical" if "Historis" in horizon_mode else "forecast"
-    all_events_list = []
-    total_raw_obs = 0
-
-    for idx, row in df_routes.iterrows():
-        r_id = row['Route_ID']
-        dest = row['Destination']
-        lat = row['Lat_Dest']
-        lon = row['Lon_Dest']
-        
-        df_h = fetch_hourly_telemetry(lat, lon, mode=mode_key)
-        if not df_h.empty:
-            total_raw_obs += len(df_h)
-            df_ev = reconstruct_event_journal(df_h, r_id, dest)
-            if not df_ev.empty:
-                all_events_list.append(df_ev)
-
-    if all_events_list:
-        combined_events = pd.concat(all_events_list, ignore_index=True)
-    else:
-        combined_events = pd.DataFrame(columns=[
-            "Rentang Waktu (Telemetri)", "Rute / Situs", "Kategori Event Risiko",
-            "Tingkat Keparahan", "Indikator Telemetri", "Tindakan Mitigasi K3"
-        ])
-
-    total_obs = total_raw_obs
-    total_events = len(combined_events)
-    critical_cnt = len(combined_events[combined_events['Tingkat Keparahan'].str.contains('Critical', case=False)]) if not combined_events.empty else 0
-    warning_cnt = len(combined_events[combined_events['Tingkat Keparahan'].str.contains('Warning', case=False)]) if not combined_events.empty else 0
-    advisory_cnt = len(combined_events[combined_events['Tingkat Keparahan'].str.contains('Advisory', case=False)]) if not combined_events.empty else 0
-
-    # Executive Telemetry Filtering Summary Container (Clean UI/UX)
-    st.markdown(f"""
-        <div style="background-color: rgba(13, 27, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px; padding: 18px 22px; margin-top: 12px; margin-bottom: 20px;">
-            <div style="font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; color: #8E9BAE; font-weight: 600; margin-bottom: 4px;">Hasil Penapisan Telemetri Operasional</div>
-            <div style="font-size: 1.2rem; font-weight: 700; color: #FFFFFF; margin-bottom: 8px;">{total_obs} observasi ➔ {total_events} event yang perlu diperhatikan</div>
-            <div style="font-size: 0.92rem; color: #C5D1E0; margin-bottom: 12px; line-height: 1.5;">Sistem secara otomatis menyaring kondisi normal dan mengompresi observasi yang relevan menjadi <b>{total_events} Event Risiko Tersaring dari {total_obs} Observasi</b>:</div>
-            <div style="display: flex; gap: 12px; align-items: center; font-size: 0.9rem; font-weight: 600; margin-bottom: 10px;">
-                <span style="background-color: rgba(235, 87, 87, 0.15); color: #FF4D4D; padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(255,77,77,0.3);">🔴 {critical_cnt} Critical</span>
-                <span style="background-color: rgba(242, 201, 76, 0.15); color: #F2C94C; padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(242,201,76,0.3);">🟡 {warning_cnt} Warning</span>
-                <span style="background-color: rgba(39, 174, 96, 0.15); color: #27AE60; padding: 4px 10px; border-radius: 4px; border: 1px solid rgba(39,174,96,0.3);">🟢 {advisory_cnt} Advisory</span>
-            </div>
-            <div style="font-size: 0.82rem; color: #7B8B9E; font-style: italic;">*Tanpa perlu menelusuri ratusan timestamp secara manual.*</div>
-        </div>
-    """, unsafe_allow_html=True)
-
-    if not combined_events.empty:
-        st.dataframe(
-            combined_events,
-            column_config={
-                "Rentang Waktu (Telemetri)": st.column_config.TextColumn("Rentang Waktu Event Window", width="medium"),
-                "Rute / Situs": st.column_config.TextColumn("Koridor Situs", width="small"),
-                "Kategori Event Risiko": st.column_config.TextColumn("Klasifikasi Event", width="medium"),
-                "Tingkat Keparahan": st.column_config.TextColumn("Severity Level", width="small"),
-                "Indikator Telemetri": "Indikator Telemetri Open-Meteo",
-                "Tindakan Mitigasi K3": "Rekomendasi Respons Mitigasi K3"
-            },
-            use_container_width=True, hide_index=True
-        )
-    else:
-        st.success("Seluruh 840 titik observasi telemetri dalam batas aman normal (No Operational Risk Events Detected).")
-
-    # Clean CSV Export Formatting
-    csv_export_df = combined_events.rename(columns={
-        "Rentang Waktu (Telemetri)": "Rentang_Waktu_Telemetri",
-        "Rute / Situs": "Kode_Rute_dan_Situs",
-        "Kategori Event Risiko": "Kategori_Event_Risiko",
-        "Tingkat Keparahan": "Tingkat_Keparahan",
-        "Indikator Telemetri": "Indikator_Telemetri",
-        "Tindakan Mitigasi K3": "Tindakan_Mitigasi_K3"
-    })
-
-    st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
-    st.download_button(
-        label="Unduh Rekonstruksi Log Risiko Operasional (CSV)",
-        data=csv_export_df.to_csv(index=False).encode('utf-8'),
-        file_name=f"petrosea_operational_risk_event_journal_{mode_key}.csv",
-        mime="text/csv"
-    )
-
-    st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True)
 

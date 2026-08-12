@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import base64
 from modules.data_loader import load_and_validate_data
 from modules.tab1_emissions import render_tab1
 from modules.tab2_optimizer import render_tab2_optimizer
@@ -10,7 +11,6 @@ from modules.tab3_executive import render_tab3_executive
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="Petrosea EcoLogix",
-    page_icon="🌱",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -156,13 +156,29 @@ except Exception as e:
 # -----------------------------------------------------------------------------
 # 3. SIDEBAR BRANDING & DATA DISCLAIMER
 # -----------------------------------------------------------------------------
-st.sidebar.markdown("""
-    <div class="logo-container">
-        <img src="https://www.petrosea.com/wp-content/uploads/2023/03/logo-petrosea.png" width="160">
+def get_svg_logo(file_path, width="160px"):
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            svg_content = f.read()
+        # Remove newlines so Markdown parser doesn't break the HTML block
+        svg_content = svg_content.replace('\n', ' ').replace('\r', '')
+        # Ensure it has width and height attributes mapped properly for inline display
+        if "<svg" in svg_content:
+            svg_content = svg_content.replace('<svg', f'<svg style="width: {width}; height: auto;"')
+        return svg_content
+    except Exception:
+        return ""
+
+logo_svg_sidebar = get_svg_logo("assets/logo-ecologix.svg", width="140px")
+logo_svg_header = get_svg_logo("assets/logo-ecologix.svg", width="180px")
+
+st.sidebar.markdown(f"""
+    <div class="logo-container" style="background: transparent; border: none; box-shadow: none; padding: 0; margin-bottom: 20px;">
+        {logo_svg_sidebar}
     </div>
 """, unsafe_allow_html=True)
 
-st.sidebar.title("🌱 Petrosea EcoLogix")
+st.sidebar.title("Petrosea EcoLogix")
 st.sidebar.caption("Evaluasi emisi & risiko logistik")
 st.sidebar.markdown("---")
 st.sidebar.info(
@@ -174,7 +190,12 @@ st.sidebar.info(
 # -----------------------------------------------------------------------------
 # 4. HEADER & KPI OVERVIEW CARDS
 # -----------------------------------------------------------------------------
-st.title("🌱 Petrosea EcoLogix")
+if logo_svg_header:
+    st.markdown(f'<div style="margin-bottom: -25px;">{logo_svg_header}</div>', unsafe_allow_html=True)
+    st.title("Petrosea EcoLogix")
+else:
+    st.title("Petrosea EcoLogix")
+
 st.caption("Dashboard Dekarbonisasi Rantai Pasok PT Petrosea Tbk")
 
 available_years = sorted(df_emissions['Year'].unique().tolist())
@@ -266,7 +287,7 @@ st.markdown("---")
 # -----------------------------------------------------------------------------
 tab1, tab2, tab3 = st.tabs([
     "Profil Emisi", 
-    "Simulator Rute", 
+    "Simulator Logistik", 
     "Laporan Direksi"
 ])
 
